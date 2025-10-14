@@ -23,11 +23,11 @@ from dotenv import load_dotenv
 ROOT = os.path.dirname(__file__)
 BACKEND = os.path.join(ROOT, 'backend')
 
-# Garante que possamos importar pacotes dentro de backend/ (incluindo explorer.services)
+# Garante que possamos importar pacotes dentro de backend/ (incluindo analyzer.services)
 if BACKEND not in sys.path:
     sys.path.insert(0, BACKEND)
-if os.path.join(BACKEND, 'explorer') not in sys.path:
-    sys.path.insert(0, os.path.join(BACKEND, 'explorer'))
+if os.path.join(BACKEND, 'analyzer') not in sys.path:
+    sys.path.insert(0, os.path.join(BACKEND, 'analyzer'))
 
 # Carrega .env (se existir)
 load_dotenv(os.path.join(ROOT, '.env'))
@@ -42,11 +42,11 @@ def main():
     if not api_key:
         print('Aviso: GOOGLE_API_KEY não encontrado nas variáveis de ambiente. Você precisa configurá-lo para que o Gemini funcione.')
 
-    # Importa diretamente as funções de explorer.services para um teste direto
+    # Importa diretamente as funções de analyzer.services para um teste direto
     try:
-        from explorer.services import fetch_pdf_text_from_url, summarize_article_with_gemini
+        from analyzer.services import fetch_pdf_text_from_url, summarize_article_with_gemini
     except Exception as e:
-        print('Erro ao importar explorer.services:', e)
+        print('Erro ao importar analyzer.services:', e)
         sys.exit(1)
 
     print('Baixando e extraindo texto do PDF:', args.url)
