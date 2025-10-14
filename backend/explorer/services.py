@@ -25,6 +25,44 @@ GEMINI_PRO_2_5 = "gemini-2.5-pro"
 # Default model (can be overridden by environment variable GEMINI_MODEL)
 MODEL_NAME = os.getenv("GEMINI_MODEL", GEMINI_PRO_2_5)
 
+
+def extract_first_json(text: str) -> Optional[str]:
+    """Extract the first balanced JSON object from text, ignoring braces inside strings."""
+    start = text.find('{')
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if esc:
+            esc = False
+            continue
+        if ch == '\\':
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                return text[start:i+1]
+    return None
+
+
+def call_model(model, prompt_text: str, max_tokens: int = 4096) -> str:
+    """Call the generative model with a safe kwargs fallback."""
+    try:
+        return model.generate_content(prompt_text, temperature=0, max_output_tokens=max_tokens).text
+    except TypeError:
+        return model.generate_content(prompt_text).text
+
 def extract_keywords_with_gemini(natural_language_query: str) -> str:
     """
     Usa a IA do Gemini para extrair os termos de busca de uma frase.
@@ -118,70 +156,37 @@ def fetch_pdf_text_from_url(url: str) -> Optional[str]:
     try:
         resp = requests.get(url, stream=True, timeout=15)
         resp.raise_for_status()
+        ctype = resp.headers.get('content-type', '')
+        if 'text/html' in ctype.lower():
+            html = resp.text
+            m = re.search(r'href=["\']([^"\']+\.pdf)["\']', html, flags=re.IGNORECASE)
+            if not m:
+                m = re.search(r'href=["\']([^"\']+/pdf/[^"\']+\.pdf)["\']', html, flags=re.IGNORECASE)
+            if m:
+                resp = requests.get(urllib.parse.urljoin(url, m.group(1)), stream=True, timeout=15)
+                resp.raise_for_status()
+            elif '/abs/' in url:
+                resp = requests.get(url.replace('/abs/', '/pdf/') + ('' if url.endswith('.pdf') else '.pdf'), stream=True, timeout=15)
+                resp.raise_for_status()
 
-        # Se o servidor retornou HTML (ex: página de abstract do arXiv),
-        # tentamos descobrir um link direto para o PDF e seguir para ele.
-        content_type = resp.headers.get('content-type', '')
-        if 'text/html' in content_type.lower():
-            try:
-                html = resp.text
-                # procura por href que termina em .pdf
-                m = re.search(r'href=["\']([^"\']+\.pdf)["\']', html, flags=re.IGNORECASE)
-                if not m:
-                    # procura links comuns do arXiv: /pdf/<id>.pdf
-                    m = re.search(r'href=["\']([^"\']+/pdf/[^"\']+\.pdf)["\']', html, flags=re.IGNORECASE)
-                if m:
-                    pdf_href = m.group(1)
-                    pdf_url = urllib.parse.urljoin(url, pdf_href)
-                    # substitui resp pelo download do PDF
-                    resp = requests.get(pdf_url, stream=True, timeout=15)
-                    resp.raise_for_status()
-                else:
-                    # tenta construir URL padrão para arXiv (substitui /abs/ -> /pdf/)
-                    if '/abs/' in url and url.endswith('/') is False:
-                        pdf_url = url.replace('/abs/', '/pdf/') + '.pdf' if not url.endswith('.pdf') else url
-                        resp = requests.get(pdf_url, stream=True, timeout=15)
-                        resp.raise_for_status()
-            except Exception:
-                # se não achar PDF na página, deixamos prosseguir e lidar com erro ao salvar
-                pass
-
-        # Salva em um arquivo temporário (fechado quando sair do with)
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
             for chunk in resp.iter_content(chunk_size=8192):
                 if chunk:
                     tmp.write(chunk)
             tmp_path = tmp.name
 
-        # Extrai texto com PyPDF2 (abre depois do with — evita locks no Windows)
         reader = PdfReader(tmp_path)
-        text_parts = []
-        for page in reader.pages:
-            try:
-                text_parts.append(page.extract_text() or "")
-            except Exception:
-                # ignore extraction errors on a single page
-                continue
-
-        full_text = "\n\n".join(text_parts).strip()
-        if not full_text:
-            return None
-        return full_text
-
-    except requests.RequestException as e:
-        print(f"Erro ao baixar PDF: {e}")
-        return None
+        parts = [p.extract_text() or '' for p in reader.pages]
+        return '\n\n'.join(parts).strip() or None
     except Exception as e:
-        print(f"Erro ao extrair texto do PDF: {e}")
+        print(f"Erro ao obter/extrair PDF: {e}")
         return None
     finally:
-        # Remover o arquivo temporário quando existir
-        try:
-            if tmp_path and os.path.exists(tmp_path):
+        if tmp_path and os.path.exists(tmp_path):
+            try:
                 os.remove(tmp_path)
-        except Exception as e:
-            # Não interromper o fluxo por falha na remoção, apenas logue
-            print(f"Aviso: falha ao remover arquivo temporário {tmp_path}: {e}")
+            except Exception:
+                pass
 
 
 def summarize_article_with_gemini(article_text: str) -> dict:
@@ -205,127 +210,28 @@ def summarize_article_with_gemini(article_text: str) -> dict:
 
     Artigo (trecho ou texto completo):
     """
-    # Se o texto for muito grande, truncamos para um tamanho seguro (por ex. 12000 caracteres)
-    safe_text = article_text
-    if len(safe_text) > 12000:
-        safe_text = safe_text[:12000]
-
-    full_prompt = f"{prompt}\n{safe_text}\n\nSua saída:" 
-
-    def extract_first_json(text: str) -> Optional[str]:
-        """Tenta extrair o primeiro objeto JSON equilibrado do texto.
-        Faz um parse simples considerando strings para pular chaves dentro de textos.
-        Retorna a substring JSON ou None.
-        """
-        start = text.find('{')
-        if start == -1:
-            return None
-        depth = 0
-        in_str = False
-        escape = False
-        for i in range(start, len(text)):
-            ch = text[i]
-            if escape:
-                escape = False
-                continue
-            if ch == '\\':
-                escape = True
-                continue
-            if ch == '"':
-                in_str = not in_str
-                continue
-            if in_str:
-                continue
-            if ch == '{':
-                depth += 1
-            elif ch == '}':
-                depth -= 1
-                if depth == 0:
-                    return text[start:i+1]
-        return None
-
+    safe_text = article_text[:12000]
+    full_prompt = f"{prompt}\n{safe_text}\n\nSua saída:"
+    model = genai.GenerativeModel(MODEL_NAME)
+    few_shot = '{"problem": "(2-4 sent.)", "methodology": "(2-4 sent.)", "results": "(2-4 sent.)", "conclusion": "(2-4 sent.)"}\n'
+    raw = call_model(model, few_shot + "\n" + full_prompt)
+    cleaned = (raw or '').replace('```json', '').replace('```', '').strip()
     try:
-        model = genai.GenerativeModel(MODEL_NAME)
+        data = json.loads(cleaned)
+    except Exception:
+        candidate = extract_first_json(cleaned)
+        if not candidate:
+            return {"error": "Resposta inválida do modelo de IA.", "raw": (raw or '')[:1000]}
+        try:
+            data = json.loads(candidate)
+        except Exception:
+            return {"error": "Resposta inválida do modelo de IA.", "raw": (raw or '')[:1000]}
 
-        # Helper para chamar o modelo; configuramos temperature=0 para respostas determinísticas
-        # Few-shot examples to teach the exact JSON schema and encourage length
-        few_shot = """
-EXEMPLO 1:
-Entrada: Trecho curto de um artigo sobre X.
-Saída:
-{"problem": "... (2-4 sentenças)", "methodology": "... (2-4 sentenças)", "results": "... (2-4 sentenças)", "conclusion": "... (2-4 sentenças)"}
-
-EXEMPLO 2:
-Entrada: Trecho curto de um artigo sobre Y.
-Saída:
-{"problem": "... (2-4 sentenças)", "methodology": "... (2-4 sentenças)", "results": "... (2-4 sentenças)", "conclusion": "... (2-4 sentenças)"}
-"""
-
-        def call_model(prompt_text: str):
-            try:
-                # prefer explicit params; some SDKs accept them, others may ignore
-                return model.generate_content(prompt_text, temperature=0, max_output_tokens=4096).text
-            except TypeError:
-                return model.generate_content(prompt_text).text
-
-        raw_response = None
-        data = None
-        # Tentativas: primeira solicitação, depois até 2 re-prompts estritos se necessário
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            prompt_to_send = full_prompt if attempt == 0 else (
-                "Você não retornou um JSON válido. Responda APENAS com um objeto JSON válido contendo as chaves: \"problem\", \"methodology\", \"results\", \"conclusion\". "
-                "Cada campo deve ter 2-6 sentenças. Não inclua texto adicional. Apenas o objeto JSON.\n\n" + full_prompt
-            )
-            # prepend few-shot examples on the first attempt to guide format and length
-            if attempt == 0:
-                prompt_to_send = few_shot + "\n\n" + prompt_to_send
-
-            raw_response = call_model(prompt_to_send)
-
-            cleaned = raw_response.strip()
-            print(f"[DEBUG] Gemini raw response (attempt {attempt+1}):\n{cleaned[:1500]}")
-
-            # Normalize typical code fences
-            cleaned_json_candidate = cleaned.replace('```json', '').replace('```', '').strip()
-
-            # 1) Try direct load
-            try:
-                data = json.loads(cleaned_json_candidate)
-                break
-            except json.JSONDecodeError:
-                # 2) Try to extract the first balanced JSON object
-                try:
-                    candidate = extract_first_json(cleaned_json_candidate)
-                    if candidate:
-                        data = json.loads(candidate)
-                        break
-                except Exception:
-                    data = None
-                # continue to next attempt
-                continue
-
-        if not data:
-            # Fornecemos parte da resposta bruta para debug (truncada)
-            raw_excerpt = (raw_response or '')[:1000]
-            print(f"Erro: não foi possível obter JSON válido do Gemini. Resposta bruta: {raw_excerpt}")
-            return {"error": "Resposta inválida do modelo de IA.", "raw": raw_excerpt}
-
-        # Garante que as chaves existam
-        result = {
-            'problem': (data.get('problem') or '').strip(),
-            'methodology': (data.get('methodology') or '').strip(),
-            'results': (data.get('results') or '').strip(),
-            'conclusion': (data.get('conclusion') or '').strip(),
-        }
-        print(f"Resumo gerado com sucesso pelo Gemini: {list(result.keys())}")
-        return result
-
-    except (json.JSONDecodeError, KeyError) as e:
-        print(f"Erro ao decodificar JSON do Gemini: {e}")
-        return {"error": "Resposta inválida do modelo de IA."}
-    except Exception as e:
-        print(f"Erro ao chamar Gemini para resumir: {e}")
-        return {"error": "Falha ao gerar resumo com a IA."}
+    return {
+        'problem': (data.get('problem') or '').strip(),
+        'methodology': (data.get('methodology') or '').strip(),
+        'results': (data.get('results') or '').strip(),
+        'conclusion': (data.get('conclusion') or '').strip(),
+    }
     
 
