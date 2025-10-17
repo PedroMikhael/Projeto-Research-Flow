@@ -112,7 +112,7 @@ def summarize_article_with_gemini(article_text: str, natural_language_query: Opt
     Em caso de erro, retorna um dicionário com a chave 'error' e mensagem.
     """
     # Limpa/encaixa o prompt para que o modelo retorne apenas JSON
-    prompt = f"""
+    prompt = """
     Você é um assistente que resume artigos acadêmicos. Sua tarefa é produzir
     um objeto JSON com as seguintes chaves obrigatórias: "problem", "methodology",
     "results", "conclusion". Cada chave deve conter um resumo detalhado sobre o artigo fornecido.
@@ -149,33 +149,32 @@ def summarize_article_with_gemini(article_text: str, natural_language_query: Opt
                             "limitations_or_future_work": "Limitações identificadas e direções sugeridas para trabalhos futuros."
                         }
                     }
-
-    Processe a seguinte entrada do usuário:
-    **Consulta do Usuário:** "{natural_language_query}"
-    **Sua Saída:**
-    Artigo (trecho ou texto completo):
+    """
+    consulta = f"""
+        Processe a seguinte entrada do usuário:
+        **Consulta do Usuário:** "{natural_language_query}"
+        **Sua Saída:**
     """
     safe_text = article_text
     full_prompt = f"{prompt}\n{safe_text}\n\nSua saída:"
     model = genai.GenerativeModel(MODEL_NAME)
     # Few-shot (2 exemplos) em português. Cada Saída é APENAS um objeto JSON válido.
     few_shot = """
-    Entrada: ""Rede neural convolucional leve para classificação de imagens; testes em CIFAR-10 atingiram 92 porcento de acurácia com menor custo computacional.""
-    Saída:
-    {"problem": "Necessidade de classificar imagens com eficiência computacional.", "methodology": "Arquitetura CNN leve otimizada para reduzir parâmetros.", "results": "Acurácia de 92% em CIFAR-10 com redução de parâmetros.", "conclusion": "Bom trade-off entre desempenho e custo computacional."}
+        Entrada: ""Rede neural convolucional leve para classificação de imagens; testes em CIFAR-10 atingiram 92 porcento de acurácia com menor custo computacional.""
+        Saída:
+        {"problem": "Necessidade de classificar imagens com eficiência computacional.", "methodology": "Arquitetura CNN leve otimizada para reduzir parâmetros.", "results": "Acurácia de 92 porcento em CIFAR-10 com redução de parâmetros.", "conclusion": "Bom trade-off entre desempenho e custo computacional."}
 
-    Geral:
-    Entrada: "artigo + consulta do usuário"
-    Saída:
-    {"problem": "...", 
-     "methodology": "...", 
-     "results": "...", 
-     "conclusion": "..."}
+        Geral:
+        Entrada: "artigo + consulta do usuário"
+        Saída:
+        {"problem": "...", 
+        "methodology": "...", 
+        "results": "...", 
+        "conclusion": "..."}
     """
 
     # Envia few-shot + prompt
-    raw = call_model(model, few_shot + "\n" + full_prompt)
-    raw = call_model(model, full_prompt)
+    raw = call_model(model, few_shot + "\n" + full_prompt + consulta)
     cleaned = (raw or '').replace('```json', '').replace('```', '').strip()
     try:
         data = json.loads(cleaned)
@@ -188,11 +187,22 @@ def summarize_article_with_gemini(article_text: str, natural_language_query: Opt
         except Exception:
             return {"error": "Resposta inválida do modelo de IA.", "raw": (raw or '')[:1000]}
 
+    # Normalize fields: model may return nested dicts/lists; convert them to readable strings
+    def _normalize_field(v):
+        if v is None:
+            return ''
+        if isinstance(v, (dict, list)):
+            try:
+                return json.dumps(v, ensure_ascii=False)
+            except Exception:
+                return str(v)
+        return str(v).strip()
+
     return {
-        'problem': (data.get('problem') or '').strip(),
-        'methodology': (data.get('methodology') or '').strip(),
-        'results': (data.get('results') or '').strip(),
-        'conclusion': (data.get('conclusion') or '').strip(),
+        'problem': _normalize_field(data.get('problem')),
+        'methodology': _normalize_field(data.get('methodology')),
+        'results': _normalize_field(data.get('results')),
+        'conclusion': _normalize_field(data.get('conclusion')),
     }
     
 

@@ -56,7 +56,9 @@ def main():
         sys.exit(1)
 
     print('Chamando summarize_article_with_gemini...')
-    result = summarize_article_with_gemini(article_text)
+    # Passa também uma consulta em linguagem natural que descreve o que o usuário quer
+    natural_query = 'Resuma o artigo com destaque e com clareza.'
+    result = summarize_article_with_gemini(article_text, natural_query)
 
     print('\nResultado:')
     print(json.dumps(result, ensure_ascii=False, indent=2))
