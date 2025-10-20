@@ -1,55 +1,72 @@
-from django.shortcuts import render
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from rest_framework import status
 
-# Importe as duas funções do nosso módulo de serviços
+from drf_spectacular.utils import extend_schema
+
+# Importe o novo serializer de resposta
+from .serializers import SearchQuerySerializer, ArticleSerializer, ApiResponseSerializer
+
 from explorer.services import extract_keywords_with_gemini, search_articles_from_api
 from analyzer.services import summarize_article
 
-# Esta view já existe, você só precisa garantir que o conteúdo dela
-# esteja igual ao abaixo
+@extend_schema(exclude=True)
 @api_view(['GET'])
 def get_status(request):
-    """
-    Um endpoint simples para verificar se a API está online.
-    """
+    """ Um endpoint simples para verificar se a API está online. """
     return Response({"status": "ok", "message": "Backend is running!"})
 
-# SUBSTITUA A VERSÃO ANTIGA DESTA VIEW PELA NOVA ABAIXO
+
+@extend_schema(
+    summary="Busca Artigos com IA",
+    description="Recebe uma query de busca em linguagem natural, usa IA para otimizá-la e retorna os 5 artigos mais relevantes encontrados.",
+    request=SearchQuerySerializer,
+    # ATUALIZADO: Agora a resposta 200 é o nosso novo objeto carismático
+    responses={
+        200: ApiResponseSerializer,
+        400: {"description": "Erro de requisição, como uma query vazia."}
+    }
+)
 @api_view(['POST'])
 def search_articles_view(request):
     """
     Recebe uma query em linguagem natural, extrai os keywords com IA
     e retorna uma lista de artigos.
     """
-    # 1. Pega a frase completa enviada pelo front-end
-    natural_query = request.data.get('query', '')
-    if not natural_query:
-        return Response({"error": "Query não fornecida."}, status=400)
+    serializer = SearchQuerySerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    # 2. Envia a frase para o Gemini extrair as palavras-chave
+    natural_query = serializer.validated_data['query']
+
     keywords = extract_keywords_with_gemini(natural_query)
-    if not keywords:
-         return Response({"error": "Não foi possível extrair termos da busca."}, status=400)
 
-    # 3. Usa as palavras-chave limpas para buscar os artigos (ainda com dados falsos)
     articles = search_articles_from_api(keywords)
 
-    return Response(articles)
+    # --- A LÓGICA DA RESPOSTA CARISMÁTICA ---
 
-def summarize_article(request):
-    """
-    Recebe o texto de um artigo e retorna um resumo estruturado gerado pela IA.
-    """
-    # 1. Pega o texto do artigo enviado pelo front-end
-    article_text = request.data.get('text', '')
-    if not article_text:
-        return Response({"error": "Texto do artigo não fornecido."}, status=400)
+    if "error" in articles:
+        # Se a API externa falhou
+        response_data = {
+            "success": False,
+            "message": "Puxa, tive um problema para me conectar à base de dados. Tente novamente em alguns instantes.",
+            "articles": []
+        }
+        return Response(response_data, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-    # 2. Chama a função summarize_article do módulo de serviços
-    result = summarize_article(article_text, is_url=False)
-    if result.get('error'):
-        status_code = 422 if result.get('details') else 500
-        return Response(result, status=status_code)
+    if len(articles) > 0:
+        # Se encontramos artigos
+        response_data = {
+            "success": True,
+            "message": f"Encontrei {len(articles)} artigos excelentes para você! Que tal explorar outro tópico?",
+            "articles": articles
+        }
+    else:
+        # Se a busca foi bem-sucedida, mas não retornou nada
+        response_data = {
+            "success": True,
+            "message": "Puxa, não encontrei artigos com esses termos. Que tal tentarmos uma busca diferente?",
+            "articles": []
+        }
 
-    return Response(result)
+    return Response(response_data, status=status.HTTP_200_OK)
