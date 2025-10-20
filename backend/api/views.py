@@ -70,3 +70,20 @@ def search_articles_view(request):
         }
 
     return Response(response_data, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+def summarize_article(request):
+    """
+    Recebe o texto de um artigo e retorna um resumo estruturado gerado pela IA.
+    """
+    # 1. Pega o texto do artigo enviado pelo front-end
+    article_text = request.data.get('text', '')
+    if not article_text:
+        return Response({"error": "Texto do artigo não fornecido."}, status=400)
+
+    # 2. Chama a função summarize_article do módulo de serviços
+    result = summarize_article(article_text, is_url=False)
+    if result.get('error'):
+        status_code = 422 if result.get('details') else 500
+        return Response(result, status=status_code)
