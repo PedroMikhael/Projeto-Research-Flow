@@ -131,7 +131,29 @@ def summarize_article_json_view(request):
     description="""Recebe um arquivo PDF via upload (multipart/form-data) 
     e usa IA para gerar um resumo estruturado.
     """,
-    request=SummarizeFormInputSerializer, # <-- Serializer específico
+    
+    # --- MUDANÇA PRINCIPAL AQUI ---
+    # Vamos definir o schema do request manualmente.
+    request={
+        # 1. Definimos o 'content-type' que o Swagger deve usar
+        'multipart/form-data': {
+            'type': 'object',
+            # 2. Definimos os campos do formulário
+            'properties': {
+                'file': {
+                    'type': 'string',
+                    'format': 'binary'  # <-- A MÁGICA ACONTECE AQUI
+                },
+                'query': {
+                    'type': 'string'
+                }
+            },
+            # 3. Dizemos quais campos são obrigatórios
+            'required': ['file']
+        }
+    },
+    # ---------------------------------
+    
     responses={
         200: SummarizeOutputSerializer,
         400: {"description": "Erro de validação (ex: arquivo faltando ou formato inválido)."},
@@ -139,6 +161,7 @@ def summarize_article_json_view(request):
         500: {"description": "Erro interno (ex: falha na IA)."}
     }
 )
+
 @api_view(['POST'])
 @parser_classes([MultiPartParser, FormParser]) # <-- APENAS MULTIPART
 def summarize_article_file_view(request):
