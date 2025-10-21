@@ -23,7 +23,7 @@ GEMINI_PRO_2_0 = "gemini-2.0-pro"
 GEMINI_PRO_2_5 = "gemini-2.5-pro"
 
 # Default model (can be overridden by environment variable GEMINI_MODEL)
-MODEL_NAME = os.getenv("GEMINI_MODEL", GEMINI_PRO_2_5)
+MODEL_NAME = os.getenv("GEMINI_MODEL", GEMINI_FLASH_2_0)
 
 def extract_first_json(text: str) -> Optional[str]:
     """Extract the first balanced JSON object from text, ignoring braces inside strings."""
@@ -145,7 +145,6 @@ def summarize_article_with_gemini(article_text: str, natural_language_query: Opt
     - Mantenha a linguagem em português e seja objetivo.
     - Faça uma explicação completa e clara para cada seção.
     - Traga também detalhes específicos do artigo, como nomes de métodos, métricas e resultados numéricos.
-    - Deve ser feito em português.
 
     Exemplo de casos de uso:
         **Consulta usuário:** "Resuma o artigo "Attention is all you need" com detalhes técnicos."
@@ -178,7 +177,7 @@ def summarize_article_with_gemini(article_text: str, natural_language_query: Opt
         **Consulta do Usuário:** "{natural_language_query}"
         **Sua Saída:**
     """
-    safe_text = article_text
+    safe_text = article_text[:50000]  # Limita o texto para evitar exceder tokens
     full_prompt = f"{prompt}\n{safe_text}\n\nSua saída:"
     model = genai.GenerativeModel(MODEL_NAME)
     # Few-shot (2 exemplos) em português. Cada Saída é APENAS um objeto JSON válido.
