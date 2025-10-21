@@ -1,4 +1,3 @@
-from rest_framework.parsers import MultiPartParser, JSONParser
 from rest_framework.decorators import api_view, parser_classes
 from rest_framework.response import Response
 from rest_framework import status
@@ -163,7 +162,7 @@ def summarize_article_json_view(request):
 )
 
 @api_view(['POST'])
-@parser_classes([MultiPartParser, FormParser]) # <-- APENAS MULTIPART
+@parser_classes([MultiPartParser, FormParser])
 def summarize_article_file_view(request):
     """
     Endpoint para resumir um artigo a partir de upload de arquivo PDF.

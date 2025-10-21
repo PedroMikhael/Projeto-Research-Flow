@@ -1,6 +1,4 @@
 from django.urls import path
-
-# CORREÇÃO AQUI: Importe 'summarize_article_view', não 'summarize_article'
 from .views import get_status, search_articles_view, summarize_article_json_view, summarize_article_file_view
 
 urlpatterns = [

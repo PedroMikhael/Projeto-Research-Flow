@@ -65,12 +65,9 @@ class SummarizeFormInputSerializer(SummarizeBaseInputSerializer):
         required=True,
         help_text="Upload de um arquivo PDF para ser resumido."
     )
-    
     # Nota: Os outros campos (como 'query') também virão como FormData.
 
-# Mantenha o seu serializer de SAÍDA (Output)
 class SummarizeOutputSerializer(serializers.Serializer):
-    # ... (Seu serializer de saída está perfeito, sem mudanças)
     problem = serializers.CharField(allow_blank=True, help_text="O problema abordado pelo artigo.")
     methodology = serializers.CharField(allow_blank=True, help_text="A metodologia utilizada.")
     results = serializers.CharField(allow_blank=True, help_text="Os resultados encontrados.")

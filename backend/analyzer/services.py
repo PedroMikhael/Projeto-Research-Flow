@@ -265,7 +265,6 @@ def summarize_article(input_value, input_type: str = 'text', natural_language_qu
     if not text.strip():
         return {"error": "Texto vazio para resumir."}
 
-    # (Eu adicionei o natural_language_query aqui, pois sua função gemini o aceita)
     return summarize_article_with_gemini(text, natural_language_query=natural_language_query)
 
 
