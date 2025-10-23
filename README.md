@@ -1,72 +1,140 @@
-# Explorer
+# *Explorer*
 
-Módulo de Busca (explorer)
-Este app é o "cérebro" por trás da funcionalidade de busca de artigos. Sua responsabilidade é receber uma consulta do usuário, processá-la com Inteligência Artificial e buscar os resultados em bases de dados acadêmicas.
+O **Explorer** é o cérebro por trás da funcionalidade de **busca de artigos acadêmicos** no sistema **Research Flow**.  
+Sua principal responsabilidade é **receber consultas em linguagem natural**, processá-las com **Inteligência Artificial (Gemini)** e **buscar resultados relevantes** em bases científicas, como o **Semantic Scholar**.
 
-Fluxo da Funcionalidade de Busca
-O processo é orquestrado pela view search_articles_view (localizada em api/views.py) e executado pelos serviços deste app:
+---
 
-A API recebe uma consulta em linguagem natural (ex: "artigos sobre IA no futebol em português").
+##  Visão Geral do Fluxo de Busca
 
-A consulta é enviada para a função extract_keywords_with_gemini.
+O processo completo é orquestrado pela view `search_articles_view` (localizada em `api/views.py`) e executado pelos serviços deste app:
 
-O Gemini (IA) analisa a consulta e a enriquece, gerando uma "super-query" que inclui:
+1.  **Recepção da Consulta**  
+   A API recebe uma consulta em linguagem natural (exemplo:  
+   `"artigos sobre IA no futebol em português"`).
 
-Termos em Português (ex: futebol).
+2.  **Extração e Enriquecimento de Palavras-Chave**  
+   A consulta é enviada para a função `extract_keywords_with_gemini`.
 
-Termos em Inglês (ex: soccer, football).
+   - O **Gemini** analisa o texto e gera uma **super-query** aprimorada, contendo:
+     - Termos em **Português** (`futebol`);
+     - Termos em **Inglês** (`soccer`, `football`);
+     - **Filtros inteligentes**, se detectados (ex: `language:pt` ou `author:"Nome"`).
 
-Filtros de intenção, se detectados (ex: language:pt ou author:"Nome").
+3.  **Busca em Base de Dados Acadêmica**  
+   A “super-query” é passada para a função `search_articles_from_api`, que:
+   - Se conecta à **API do Semantic Scholar**;
+   - Recupera os **25 artigos mais relevantes**;
+   - Descarta artigos **sem resumo (abstract)**;
+   - Ordena os resultados pelo número de **citações** (`citationCount`);
+   - Seleciona os **Top 5 artigos mais bem avaliados**.
 
-A "super-query" resultante é passada para a função search_articles_from_api.
+4. **Formatação da Resposta Final**  
+   A view monta a resposta no formato JSON, com:
+   - ✅ `success`: status da operação;
+   - 💬 `message`: mensagem amigável;
+   - 📚 `articles`: lista dos artigos formatados.
 
-Esta função se conecta à API do Semantic Scholar, busca pelos termos e solicita os 25 artigos mais relevantes.
+---
 
-Os resultados brutos são filtrados: artigos sem resumo (abstract) são descartados.
+##  Estrutura dos Componentes Principais
 
-Os artigos restantes são classificados pelo número de citações (citationCount), do maior para o menor.
+###  `explorer/services.py`
 
-Os Top 5 artigos "mais bem avaliados" dessa lista são selecionados.
+Contém **toda a lógica de negócios** da busca.
 
-A view da API formata esses 5 artigos em uma resposta carismática (JSON), que inclui uma mensagem de sucesso e a lista de artigos.
+####  `extract_keywords_with_gemini(natural_language_query)`
+- **Propósito:** Interface com a API do **Google Gemini**.  
+- **Lógica:**  
+  Usa *prompt engineering* avançado para converter uma consulta simples em uma **query híbrida PT/EN otimizada**, adicionando filtros de intenção.  
+- **Saída:**  
+  JSON no formato:
+  ```json
+  { "keywords": "..." }
+  ```
 
-Componentes Principais
-explorer/services.py
-Este arquivo contém toda a lógica de negócios da busca.
+####  `search_articles_from_api(query)`
+- **Propósito:** Interface com a API do **Semantic Scholar**.  
+- **Lógica:**
+  - Executa a busca com a query gerada;
+  - Aplica filtros de qualidade (descarta artigos sem resumo);
+  - Ordena por número de citações;
+  - Retorna os **Top 5** artigos mais relevantes.
+- **Saída:**  
+  Lista de objetos de artigos formatados.
 
-extract_keywords_with_gemini(natural_language_query)
+---
 
-Propósito: Interface com a API do Google Gemini.
+###  `api/serializers.py`
 
-Lógica: Usa um prompt de engenharia avançada para converter uma frase simples em uma string de busca otimizada (híbrida PT/EN + filtros).
+Define o **contrato de dados** da API — garantindo consistência entre requisição e resposta.
 
-Saída: Uma string de busca formatada em JSON ({"keywords": "..."}).
+####  `SearchQuerySerializer`
+- Valida o JSON de entrada, garantindo que contenha a chave:
+  ```json
+  { "query": "..." }
+  ```
 
-search_articles_from_api(query)
+####  `ArticleSerializer`
+- Define o formato de cada artigo retornado (título, autores, resumo, citações, etc).
 
-Propósito: Interface com a API do Semantic Scholar.
+####  `ApiResponseSerializer`
+- Estrutura a resposta final, com:
+  ```json
+  {
+    "success": true,
+    "message": "Busca concluída com sucesso!",
+    "articles": [...]
+  }
+  ```
 
-Lógica: Busca os artigos usando a query fornecida, aplica os filtros de qualidade (resumo) e a lógica de classificação (top 5 por citações).
+---
 
-Saída: Uma lista de até 5 objetos de artigo formatados.
+###  `api/views.py`
 
-api/serializers.py
-SearchQuerySerializer: Define o "contrato" da requisição. Garante que a API receba um JSON com a chave query.
+####  `search_articles_view`
+O **ponto de entrada da API**: `POST /api/search/`
 
-ArticleSerializer: Define o "contrato" de cada artigo na resposta, garantindo um formato consistente.
+**Fluxo interno:**
+1. Valida os dados com `SearchQuerySerializer`;
+2. Chama `extract_keywords_with_gemini`;
+3. Executa `search_articles_from_api`;
+4. Formata o retorno com `ApiResponseSerializer`.
 
-ApiResponseSerializer: Define o "contrato" da resposta final da API, incluindo as chaves success, message e articles.
+>  As chaves são mantidas seguras no ambiente virtual `.venv`.
 
-api/views.py
-search_articles_view
 
-É o ponto de entrada da API (POST /api/search/).
+##  Tecnologias Envolvidas
 
-Valida os dados de entrada usando o SearchQuerySerializer.
+| Tecnologia | Função |
+|-------------|--------|
+| **Python / Django REST Framework** | Backend e estrutura da API |
+| **Google Gemini API** | Processamento de linguagem natural e enriquecimento semântico |
+| **Semantic Scholar API** | Fonte de dados acadêmicos |
+| **Swagger UI** | Documentação e testes interativos da API |
 
-Orquestra a chamada para extract_keywords_with_gemini e search_articles_from_api.
+---
 
-Constrói e retorna a resposta final usando o ApiResponseSerializer.
+##  Resultado Esperado (Exemplo)
+
+```json
+{
+  "success": true,
+  "message": "Top 5 artigos encontrados com sucesso!",
+  "articles": [
+    {
+      "title": "Artificial Intelligence in Football Analytics",
+      "authors": ["John Doe", "Jane Smith"],
+      "abstract": "This paper explores the use of AI in analyzing soccer performance...",
+      "citationCount": 125
+    }
+  ]
+}
+```
+
+---
+
+
 
 # Analyzer (Resumo)
 
@@ -119,16 +187,23 @@ SummarizeJsonInputSerializer: Usado quando a entrada vem em JSON (Texto por escr
 
 SummarizeFormInputSerializer: Usado quando a entrada vem via FormData (upload). Recebe: file: o arquivo PDF a ser resumido.
 
-# Configuração de Ambiente
-Para que este módulo funcione, o arquivo .env (localizado na raiz do projeto reserach-flow-backend/) deve conter as seguintes chaves:
+## ⚙️ Configuração de Ambiente
 
-# Chave para a API do Google AI Studio (Gemini)
+Para que o módulo funcione corretamente, o arquivo `.env` (na raiz do projeto `research-flow-backend/`) deve conter as seguintes chaves:
+
+```bash
+# 🔑 Chave da API do Google AI Studio (Gemini)
 GOOGLE_API_KEY="Está no .venv"
 
-# Chave para a API do Semantic Scholar
+# 🔑 Chave da API do Semantic Scholar
 SEMANTIC_API_KEY="Está no .venv"
-Documentação Interativa (Swagger)
+```
 
-A documentação completa deste endpoint, incluindo como testá-lo interativamente, está disponível no Swagger da API, que roda junto com o servidor.
 
-URL: http://127.0.0.1:8000/api/schema/swagger-ui/ 
+## 📘 Documentação Interativa (Swagger)
+
+A documentação completa deste endpoint, incluindo testes interativos, está disponível via **Swagger UI**.
+
+- **URL:** [http://127.0.0.1:8000/api/schema/swagger-ui/](http://127.0.0.1:8000/api/schema/swagger-ui/)
+
+---
