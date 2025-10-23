@@ -135,7 +135,7 @@ O **ponto de entrada da API**: `POST /api/search/`
 ---
 
 
-# Analyzer — Explorer
+# Analyzer — Resumo de Artigos
 
 > Documento estilo *explorer* que descreve o módulo **Analyzer** (Resumo de artigos científicos). Objetivo: servir como referência para desenvolvedores e documentação rápida para revisão de código.
 
