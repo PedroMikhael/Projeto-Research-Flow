@@ -18,20 +18,48 @@ def get_status(request):
 @api_view(['POST'])
 def search_articles_view(request):
     """
-    Recebe uma query em linguagem natural, extrai os keywords com IA
-    e retorna uma lista de artigos.
+    Recebe a query do frontend + filtros e retorna artigos no formato correto.
     """
-    # 1. Pega a frase completa enviada pelo front-end
-    natural_query = request.data.get('query', '')
+
+    natural_query = request.data.get("query", "").strip()
     if not natural_query:
-        return Response({"error": "Query não fornecida."}, status=400)
+        return Response({
+            "success": False,
+            "message": "Nenhuma consulta foi enviada.",
+            "articles": []
+        }, status=400)
 
-    # 2. Envia a frase para o Gemini extrair as palavras-chave
+    # filtros recebidos do frontend
+    sort_by = request.data.get("sort_by", "default")
+    year_from = request.data.get("year_from", None)
+    year_to = request.data.get("year_to", None)
+    offset = request.data.get("offset", 0)
+    is_open_access = request.data.get("is_open_access", False)
+
+    # 1. Extrai keywords com o Gemini
     keywords = extract_keywords_with_gemini(natural_query)
-    if not keywords:
-         return Response({"error": "Não foi possível extrair termos da busca."}, status=400)
 
-    # 3. Usa as palavras-chave limpas para buscar os artigos (ainda com dados falsos)
-    articles = search_articles_from_api(keywords)
+    # 2. Busca artigos
+    articles = search_articles_from_api(
+        query=keywords,
+        sort_by=sort_by,
+        year_from=year_from,
+        year_to=year_to,
+        offset=offset,
+        is_open_access=is_open_access
+    )
 
-    return Response(articles)
+    # Se a API falhar, já tratamos
+    if isinstance(articles, dict) and articles.get("error"):
+        return Response({
+            "success": False,
+            "message": "Erro ao consultar a base de artigos.",
+            "articles": []
+        }, status=500)
+
+    # 3. Resposta no formato esperado pelo frontend
+    return Response({
+        "success": True,
+        "message": f"Resultados encontrados para: {natural_query}",
+        "articles": articles  # já é uma lista com até 25 itens
+    })

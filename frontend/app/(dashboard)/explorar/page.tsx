@@ -1,11 +1,10 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-// MUDANÇA: Importamos o ícone de 'Salvar'
-import { Search, Loader2, User, Bot, Filter, X, Bookmark } from "lucide-react"
+// MUDANÇA: Importamos 'Star' (Estrela) e 'FilePlus2' (Nova Conversa)
+import { Search, Loader2, User, Bot, Filter, Star, FilePlus2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-// Componentes para o Modal de Filtros
 import {
   Dialog,
   DialogContent,
@@ -19,27 +18,7 @@ import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch" 
-
-// --- FUNÇÃO PARA SALVAR NO LOCALSTORAGE ---
-const handleSaveArticle = (articleToSave) => {
-  // 1. Pega os favoritos existentes
-  const savedItems = localStorage.getItem("researchFlowFavorites")
-  const favorites = savedItems ? JSON.parse(savedItems) : []
-
-  // 2. Verifica se o artigo já foi salvo (pela URL)
-  const isAlreadySaved = favorites.some((item) => item.url === articleToSave.url)
-
-  if (isAlreadySaved) {
-    alert("Este artigo já está salvo nos seus projetos!")
-    return
-  }
-
-  // 3. Adiciona o novo artigo e salva de volta
-  favorites.push(articleToSave)
-  localStorage.setItem("researchFlowFavorites", JSON.stringify(favorites))
-  alert("Artigo salvo em 'Meus Projetos'!")
-}
-
+import { useToast } from "@/components/ui/use-toast" // Para as notificações bonitas
 
 // --- COMPONENTE DE MENSAGEM DO USUÁRIO ---
 function UserMessage({ text }) {
@@ -54,70 +33,109 @@ function UserMessage({ text }) {
 }
 
 // --- COMPONENTE DE MENSAGEM DA API (COM OS ARTIGOS) ---
-function ApiMessage({ response, onLoadMore }) {
+function ApiMessage({ response, onLoadMore, onSaveArticle, savedUrls }) { // Recebe 'toast' e 'savedUrls'
   const { message, articles } = response
-  // Se a API retornar menos que o limite (25), sabemos que não há mais o que carregar
   const hasMore = articles && articles.length === 25
+  const [expandedMap, setExpandedMap] = useState(() => ({}))
+
+  const toggleExpanded = (idx) => {
+    setExpandedMap((prev) => ({ ...prev, [idx]: !prev[idx] }))
+  }
 
   return (
     <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-500 ease-out">
       <Bot className="mr-3 h-8 w-8 shrink-0 rounded-full bg-gray-200 p-1.5 text-gray-700 shadow-md" />
       <div className="w-full max-w-xl space-y-4">
-        {/* Mensagem Carismática */}
         <div className="inline-block rounded-3xl bg-white p-4 shadow-md dark:bg-gray-800">
           <p className="text-base">{message}</p>
         </div>
 
-        {/* Lista de Artigos */}
         {articles && articles.length > 0 && (
           <ul className="space-y-4">
-            {articles.map((article, index) => (
-              <li
-                key={index}
-                className="rounded-3xl bg-white p-5 shadow-lg transition-shadow dark:bg-gray-800"
-              >
-                <h4 className="text-lg font-semibold text-blue-600 hover:underline dark:text-blue-400">
-                  <a href={article.url} target="_blank" rel="noopener noreferrer">
-                    {article.title}
-                  </a>
-                </h4>
-                <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                  <span className="font-medium">Autores:</span>{" "}
-                  {article.authors.join(", ")}
-                </p>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  <span className="font-medium">Ano:</span> {article.year} |{" "}
-                  <span className="font-medium">Citações:</span>{" "}
-                  {article.citationCount}
-                </p>
-                <p className="mt-4 text-base text-gray-700 dark:text-gray-300">
-                  {article.abstract}
-                </p>
-                
-                {/* --- BOTÃO DE SALVAR ADICIONADO AQUI --- */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="mt-4"
-                  onClick={() => handleSaveArticle(article)}
+            {articles.map((article, index) => {
+              const isExpanded = !!expandedMap[index]
+              // MUDANÇA: Verifica se este artigo já está salvo
+              const isSaved = savedUrls.has(article.url)
+
+              return (
+                <li
+                  key={index}
+                  className="rounded-3xl bg-white p-5 shadow-lg transition-shadow dark:bg-gray-800"
                 >
-                  <Bookmark className="mr-2 h-4 w-4" />
-                  Salvar em "Meus Projetos"
-                </Button>
-              </li>
-            ))}
+                  <h4 className="text-lg font-semibold text-blue-600 hover:underline dark:text-blue-400">
+                    <a href={article.url} target="_blank" rel="noopener noreferrer">
+                      {article.title}
+                    </a>
+                  </h4>
+                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                    <span className="font-medium">Autores:</span>{" "}
+                    {Array.isArray(article.authors) ? article.authors.join(", ") : "Desconhecido"}
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    <span className="font-medium">Ano:</span> {article.year} |{" "}
+                    <span className="font-medium">Citações:</span>{" "}
+                    {article.citationCount}
+                  </p>
+
+                  {/* Abstract com "Mostrar Mais" */}
+                  {article.abstract ? (
+                    <div className="mt-4 text-base text-gray-700 dark:text-gray-300">
+                      {!isExpanded ? (
+                        <div
+                          style={{
+                            display: "-webkit-box",
+                            WebkitLineClamp: 4,
+                            WebkitBoxOrient: "vertical",
+                            overflow: "hidden",
+                          }}
+                        >
+                          {article.abstract}
+                        </div>
+                      ) : (
+                        <div>{article.abstract}</div>
+                      )}
+                      {String(article.abstract).length > 200 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-3 p-0"
+                          onClick={() => toggleExpanded(index)}
+                        >
+                          {isExpanded ? "Mostrar menos" : "Mostrar mais"}
+                        </Button>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {/* --- MUDANÇA: BOTÃO DE "SALVAR" MELHORADO --- */}
+                  <div className="mt-4">
+                    <Button
+                      variant={isSaved ? "default" : "ghost"} // Muda o estilo se estiver salvo
+                      size="sm"
+                      onClick={() => onSaveArticle(article)}
+                      className={isSaved ? "text-white" : ""}
+                    >
+                      <Star className={`mr-2 h-4 w-4 ${isSaved ? "fill-current" : ""}`} />
+                      {isSaved ? "Salvo!" : "Salvar em Meus Projetos"}
+                    </Button>
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         )}
 
         {/* --- BOTÃO DE CARREGAR MAIS (PAGINAÇÃO) --- */}
         {hasMore && (
-          <Button
-            variant="outline"
-            onClick={onLoadMore}
-            className="rounded-full"
-          >
-            Carregar Mais Resultados...
-          </Button>
+          <div className="flex justify-center">
+            <Button
+              variant="outline"
+              onClick={onLoadMore}
+              className="rounded-full"
+            >
+              Carregar Mais Resultados...
+            </Button>
+          </div>
         )}
       </div>
     </div>
@@ -141,29 +159,37 @@ function LoadingMessage() {
 }
 
 
+// --- NOME DO ARQUIVO PARA SALVAR O CHAT ---
+const CHAT_HISTORY_KEY = "researchFlowChatHistory";
+
 // --- A PÁGINA PRINCIPAL ---
 export default function ExplorarPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [messages, setMessages] = useState([])
   const chatEndRef = useRef(null)
-  
-  // Estados dos Filtros
+
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [sortBy, setSortBy] = useState("default")
   const [yearRange, setYearRange] = useState([1990, new Date().getFullYear()])
   const [isOpenAccess, setIsOpenAccess] = useState(false)
-  
-  // Estados da Paginação
+
   const [offset, setOffset] = useState(0)
-  const [lastQuery, setLastQuery] = useState("") // Salva a última query para o "Carregar Mais"
+  const [lastQuery, setLastQuery] = useState("") 
+  
+  const { toast } = useToast() // Pega a função de 'toast'
+  
+  // MUDANÇA: Estado para controlar os artigos salvos (para o ícone da estrela)
+  const [savedUrls, setSavedUrls] = useState(new Set())
 
   // --- FUNÇÃO DE AUTO-SCROLL ---
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
-  // Auto-scroll inteligente: só rola se for msg do usuário ou loading
+  // --- EFEITOS (useEffects) ---
+
+  // Efeito 1: Rola para baixo quando o chat cresce
   useEffect(() => {
     const lastMessage = messages[messages.length - 1]
     if (isLoading || (lastMessage && lastMessage.type === 'user')) {
@@ -171,35 +197,65 @@ export default function ExplorarPage() {
     }
   }, [messages, isLoading])
 
-  // --- FUNÇÃO DE BUSCA (handleSearch) ---
-  // Inicia uma NOVA busca e limpa resultados antigos
-  const handleSearch = async () => {
-    const userQuery = searchQuery.trim()
-    if (!userQuery) return
+  // Efeito 2: Salva o chat no localStorage sempre que ele mudar
+  useEffect(() => {
+    // Não salva se o chat estiver vazio
+    if (messages.length > 0) {
+      localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(messages))
+    }
+  }, [messages])
 
-    setSearchQuery("")
-    setIsLoading(true)
-    // CORREÇÃO: Adiciona a nova pergunta ao histórico, NÃO o substitui.
-    setMessages((prev) => [...prev, { type: "user", text: userQuery }])
+  // Efeito 3: Carrega o chat e os favoritos salvos QUANDO A PÁGINA ABRE
+  useEffect(() => {
+    // Carrega o histórico do chat
+    const savedChat = localStorage.getItem(CHAT_HISTORY_KEY)
+    if (savedChat) {
+      setMessages(JSON.parse(savedChat))
+    }
     
-    setOffset(0) 
-    setLastQuery(userQuery)
-    await runSearch(userQuery, 0, true) // Passa 'true' para 'isNewSearch'
-  }
-  
-  // --- FUNÇÃO DE "CARREGAR MAIS" (handleLoadMore) ---
-  // Continua a busca anterior, adicionando ao final
-  const handleLoadMore = async () => {
-    const newOffset = offset + 25
-    setIsLoading(true)
-    setOffset(newOffset) // Atualiza o offset
-    await runSearch(lastQuery, newOffset, false) // Passa 'false' para 'isNewSearch'
+    // Carrega os favoritos para o estado (para o ícone da estrela)
+    updateSavedUrls()
+  }, []) // O array vazio [] garante que isso só rode UMA VEZ no início
+
+  // --- FUNÇÕES DE LÓGICA ---
+
+  // Atualiza o estado das Estrelas (ícones)
+  const updateSavedUrls = () => {
+     const savedItems = localStorage.getItem("researchFlowFavorites")
+     const favorites = savedItems ? JSON.parse(savedItems) : []
+     setSavedUrls(new Set(favorites.map(item => item.url)))
   }
 
-  // --- FUNÇÃO PRINCIPAL DE BUSCA (runSearch) ---
-  // Função reutilizável que faz a chamada à API
-  const runSearch = async (query, currentOffset, isNewSearch) => {
-    // Monta o corpo da requisição com todos os filtros
+  // MUDANÇA: Função de Salvar (agora usa o Toast)
+  const handleSaveArticle = (articleToSave) => {
+    const savedItems = localStorage.getItem("researchFlowFavorites")
+    const favorites = savedItems ? JSON.parse(savedItems) : []
+    const isAlreadySaved = favorites.some((item) => item.url === articleToSave.url)
+
+    if (isAlreadySaved) {
+      toast({
+        variant: "default",
+        title: "Opa!",
+        description: "Este artigo já está salvo nos seus projetos.",
+      })
+      return
+    }
+
+    favorites.push(articleToSave)
+    localStorage.setItem("researchFlowFavorites", JSON.stringify(favorites))
+    
+    // AVISA o menu lateral E o nosso estado local
+    window.dispatchEvent(new Event('favoritesChanged'))
+    updateSavedUrls() // Atualiza os ícones de estrela
+    
+    toast({
+      title: "Artigo Salvo!",
+      description: "Ele já está te esperando em 'Meus Projetos'.",
+    })
+  }
+
+  // Lógica da API (separada)
+  const callApi = async (query, currentOffset) => {
     const requestBody = {
       query: query,
       sort_by: sortBy,
@@ -210,9 +266,8 @@ export default function ExplorarPage() {
     }
 
     try {
-      // LEMBRE-SE de usar o IP correto do seu backend
-      // (ex: "http://10.134.0.71:8000/api/search/")
-      const response = await fetch("http://10.134.0.71:8000/api/search/", { 
+      // *** USE O SEU IP CORRETO AQUI ***
+      const response = await fetch("http://192.168.0.6:8000/api/search/", { 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -220,56 +275,82 @@ export default function ExplorarPage() {
 
       const data = await response.json()
       if (!response.ok) throw new Error(data.message || "Erro desconhecido")
-
-      // CORREÇÃO: Lógica de estado limpa
-      if (isNewSearch) {
-        // Se é uma nova busca, adiciona a resposta da API ao chat
-        setMessages((prev) => [
-          ...prev, // Mantém a pergunta do usuário que acabamos de adicionar
-          { type: "api", response: data }
-        ])
-      } else {
-        // Se é "Carregar Mais", edita a última mensagem da API
-        setMessages((prev) => {
-          const newMessages = [...prev]
-          const lastMsg = newMessages[newMessages.length - 1]
-          
-          if (lastMsg.type === 'api') {
-            // Adiciona os novos artigos à lista existente
-            lastMsg.response.articles.push(...data.articles);
-            // Atualiza a mensagem
-            lastMsg.response.message = data.message;
-          }
-          return newMessages
-        })
-      }
-
+      return data 
+      
     } catch (error) {
       console.error("Falha ao conectar com o backend:", error)
-      const errorResponse = {
+      return {
         success: false,
         message: "Puxa, não consegui me conectar ao servidor.",
         articles: [],
       }
-      // Se for uma nova busca, adiciona a msg de erro
-      if (isNewSearch) {
-        setMessages((prev) => [
-          ...prev, 
-          { type: "api", response: errorResponse }
-        ])
-      } else {
-        // Se falhar no "Carregar Mais", só adiciona a msg de erro
-         setMessages((prev) => [...prev, { type: "api", response: errorResponse }])
-      }
-    } finally {
-      setIsLoading(false)
     }
+  }
+
+  // --- FUNÇÕES DE AÇÃO DO CHAT ---
+
+  // MUDANÇA: Nova Função "Nova Conversa"
+  const handleNewChat = () => {
+    setMessages([]) // Limpa o chat na tela
+    setLastQuery("")
+    setOffset(0)
+    localStorage.removeItem(CHAT_HISTORY_KEY) // Limpa o histórico salvo
+  }
+
+  const handleSearch = async () => {
+    const userQuery = searchQuery.trim()
+    if (!userQuery) return
+    setIsLoading(true)
+    setOffset(0)
+    setLastQuery(userQuery)
+    setMessages((prev) => [...prev, { type: "user", text: userQuery }])
+    const data = await callApi(userQuery, 0)
+    setMessages((prev) => [...prev, { type: "api", response: data }])
+    setIsLoading(false)
+  }
+  
+  const handleLoadMore = async () => {
+    const newOffset = offset + 25
+    setIsLoading(true)
+    setOffset(newOffset)
+    const data = await callApi(lastQuery, newOffset)
+    setMessages((prev) => {
+      const newMessages = [...prev]
+      const lastApiMsgIndex = newMessages.map(m => m.type).lastIndexOf('api');
+      if (lastApiMsgIndex !== -1) {
+        newMessages[lastApiMsgIndex].response.articles.push(...data.articles);
+        newMessages[lastApiMsgIndex].response.message = data.message;
+      }
+      return newMessages
+    })
+    setIsLoading(false)
+  }
+
+  const applyFilters = async () => {
+    setIsFilterOpen(false) 
+    if (!lastQuery) return // Se não buscou nada, só fecha o modal
+    
+    setIsLoading(true)
+    setOffset(0) 
+    const data = await callApi(lastQuery, 0)
+
+    setMessages((prev) => {
+      const newMessages = [...prev]
+      const lastApiMsgIndex = newMessages.map(m => m.type).lastIndexOf('api');
+      if (lastApiMsgIndex !== -1) {
+        newMessages[lastApiMsgIndex] = { type: "api", response: data };
+      } else {
+        newMessages.push({ type: "api", response: data });
+      }
+      return newMessages
+    })
+    setIsLoading(false)
   }
 
   // --- O LAYOUT JSX ---
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col">
-      {/* 1. A JANELA DE CHAT (cresce e permite scroll) */}
+      {/* 1. A JANELA DE CHAT */}
       <div className="flex-1 overflow-y-auto p-4 md:p-8">
         <div className="mx-auto max-w-3xl space-y-6">
           {messages.length === 0 && !isLoading && (
@@ -286,7 +367,9 @@ export default function ExplorarPage() {
                     <ApiMessage 
                         key={index} 
                         response={msg.response} 
-                        onLoadMore={handleLoadMore} // Passa a função para o botão
+                        onLoadMore={handleLoadMore}
+                        onSaveArticle={(article) => handleSaveArticle(article, toast)}
+                        savedUrls={savedUrls}
                     />
                 )
             }
@@ -296,24 +379,34 @@ export default function ExplorarPage() {
           <div ref={chatEndRef} />
         </div>
       </div>
-
+      
       {/* 2. O INPUT DE CHAT (fixo na base) */}
       <div className="flex-shrink-0 bg-transparent px-4 pb-6 pt-4">
         <div className="mx-auto w-full max-w-3xl">
           <div className="relative flex items-center gap-2 rounded-full bg-white p-2 shadow-xl dark:bg-gray-800">
             
-            {/* Botão de Filtro com o Modal (Controlado Manualmente) */}
+            {/* MUDANÇA: Botão de Nova Conversa */}
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-14 w-14 shrink-0 rounded-full"
+              onClick={handleNewChat}
+              title="Nova Conversa"
+            >
+              <FilePlus2 className="h-6 w-6" />
+            </Button>
+
+            {/* Botão de Filtro */}
             <Dialog open={isFilterOpen} onOpenChange={setIsFilterOpen}>
-              
               <Button
                 size="icon"
                 variant="ghost"
                 className="h-14 w-14 shrink-0 rounded-full"
-                onClick={() => setIsFilterOpen(true)} // onClick manual
+                onClick={() => setIsFilterOpen(true)}
+                title="Filtros"
               >
                 <Filter className="h-6 w-6" />
               </Button>
-              
               <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
                   <DialogTitle>Filtros de Pesquisa</DialogTitle>
@@ -322,31 +415,23 @@ export default function ExplorarPage() {
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-6 py-4">
-                  {/* Filtro de Ordenação */}
                   <div className="space-y-3">
                     <Label className="text-base">Ordenar por</Label>
                     <RadioGroup value={sortBy} onValueChange={setSortBy}>
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem value="default" id="r-default" />
-                        <Label htmlFor="r-default" className="font-normal">
-                          Relevância da IA (Padrão)
-                        </Label>
+                        <Label htmlFor="r-default" className="font-normal">Relevância da IA (Padrão)</Label>
                       </div>
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem value="relevance" id="r-relevance" />
-                        <Label htmlFor="r-relevance" className="font-normal">
-                          Mais Relevantes (Citações)
-                        </Label>
+                        <Label htmlFor="r-relevance" className="font-normal">Mais Relevantes (Citações)</Label>
                       </div>
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem value="recency" id="r-recency" />
-                        <Label htmlFor="r-recency" className="font-normal">
-                          Mais Recentes (Data)
-                        </Label>
+                        <Label htmlFor="r-recency" className="font-normal">Mais Recentes (Data)</Label>
                       </div>
                     </RadioGroup>
                   </div>
-                  {/* Filtro de Ano (Slider) */}
                   <div className="space-y-3">
                     <Label className="text-base">
                       Intervalo de Ano:{" "}
@@ -363,7 +448,6 @@ export default function ExplorarPage() {
                       minStepsBetweenThumbs={1}
                     />
                   </div>
-                  {/* Filtro Open Access */}
                   <div className="flex items-center space-x-3">
                     <Switch 
                         id="open-access-filter" 
@@ -377,7 +461,7 @@ export default function ExplorarPage() {
                 </div>
                 <DialogFooter>
                   <DialogClose asChild>
-                    <Button type="button" onClick={() => setIsFilterOpen(false)}>
+                    <Button type="button" onClick={applyFilters}>
                       Aplicar Filtros
                     </Button>
                   </DialogClose>
