@@ -3,24 +3,26 @@ from rest_framework.response import Response
 from rest_framework import status
 from drf_spectacular.utils import extend_schema
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from writer.services import extract_text_from_file
 
-# Importa TODOS os serializers do arquivo que acabamos de criar
+# Importa TODOS os serializers
 from .serializers import (
     SearchQuerySerializer, 
     ApiResponseSerializer,
+    SummarizeInputSerializer, # Mantido para compatibilidade se necessário
     SummarizeJsonInputSerializer, 
     SummarizeFormInputSerializer,
     SummarizeOutputSerializer,
+    ExtractTextOutputSerializer,
+    ChatInputSerializer,
+    ChatOutputSerializer,
     FormatTextSerializer,
     FormatTextOutputSerializer
 )
 
 # Importa a lógica de CADA app separado
 from explorer.services import extract_keywords_with_gemini, search_articles_from_api
-from analyzer.services import summarize_article
-from writer.services import format_text_with_gemini
-
+from analyzer.services import summarize_article, extract_text_content, extract_text_from_file_obj, chat_with_context
+from writer.services import format_text_with_gemini, extract_text_from_file
 
 @extend_schema(exclude=True)
 @api_view(['GET'])
@@ -28,31 +30,27 @@ def get_status(request):
     """ Um endpoint simples para verificar se a API está online. """
     return Response({"status": "ok", "message": "Backend is running!"})
 
-
 @extend_schema(
     summary="Busca Artigos com IA",
-    description="Recebe uma query de busca em linguagem natural, usa IA para otimizá-la e retorna os 5 artigos mais relevantes encontrados.",
+    description="Recebe uma query de busca, usa IA para otimizá-la e retorna os artigos mais relevantes com filtros.",
     request=SearchQuerySerializer,
     responses={
         200: ApiResponseSerializer,
-        400: {"description": "Erro de requisição, como uma query vazia."}
+        400: {"description": "Erro de requisição."}
     }
 )
 @api_view(['POST'])
 def search_articles_view(request):
-    """
-    Endpoint para buscar artigos.
-    """
-    # 1. Validar os dados de entrada (query, sort_by, etc.)
     serializer = SearchQuerySerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     validated_data = serializer.validated_data
     
+    # 1. Processa a query com IA
     keywords = extract_keywords_with_gemini(validated_data['query'])
     
-    # 4. Chamar a lógica de busca com TODOS os parâmetros
+    # 2. Busca no Semantic Scholar com todos os filtros
     articles = search_articles_from_api(
         query=keywords,
         sort_by=validated_data['sort_by'],
@@ -61,188 +59,177 @@ def search_articles_view(request):
         offset=validated_data['offset'],
         is_open_access=validated_data['is_open_access']
     )
-    # 5. Formatar a resposta carismática
+
     if "error" in articles:
-        response_data = {
+        return Response({
             "success": False,
             "message": "Puxa, tive um problema para me conectar à base de dados. Tente novamente.",
             "articles": []
-        }
-        return Response(response_data, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
     
     if len(articles) > 0:
-        response_data = {
+        return Response({
             "success": True,
-            # MUDANÇA: Mensagem de sucesso melhorada
-            "message": f"Aqui estão {len(articles)} artigos para você! Encontrei mais alguns, se quiser carregar.",
+            "message": f"Encontrei {len(articles)} artigos excelentes para você!",
             "articles": articles
-        }
+        }, status=status.HTTP_200_OK)
     else:
-        # Se for uma paginação (offset > 0) e não vier nada, a mensagem é diferente
-        if validated_data['offset'] > 0:
-            response_data = {
-                "success": True,
-                "message": "Chegamos ao fim! Não encontrei mais artigos sobre esse tema.",
-                "articles": []
-            }
-        else:
-             response_data = {
-                "success": True,
-                "message": "Puxa, não encontrei artigos com esses filtros. Que tal tentarmos uma busca diferente?",
-                "articles": []
-            }
-    return Response(response_data, status=status.HTTP_200_OK)
+        return Response({
+            "success": True,
+            "message": "Puxa, não encontrei artigos com esses filtros.",
+            "articles": []
+        }, status=status.HTTP_200_OK)
 
-# --- FUNÇÃO HELPER (para não repetir código) ---
+
+# --- NOVAS ROTAS DE RESUMO E CHAT ---
+
+# Helper para resposta de resumo
 def _handle_summarize_response(result):
-    """ Processa a resposta do serviço de resumo e retorna a Response. """
     if "error" in result:
-        # Erros de processamento (PDF ilegível, falha no download)
         if "Falha ao ler" in result.get("error", "") or "Falha ao baixar" in result.get("error", ""):
              return Response(result, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
-        # Outros erros (ex: falha na IA)
         return Response(result, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
     return Response(result, status=status.HTTP_200_OK)
 
-
-# --- VIEW 1: RESUMO POR JSON (TEXTO/URL) ---
 @extend_schema(
-    summary="[JSON] Resume um Artigo por Texto ou URL",
-    description="""Recebe o texto de um artigo ou a URL de um PDF via JSON 
-    e usa IA para gerar um resumo estruturado.
-    """,
-    request=SummarizeJsonInputSerializer, # <-- Serializer específico
-    responses={
-        200: SummarizeOutputSerializer,
-        400: {"description": "Erro de validação (ex: campos faltando)."},
-        422: {"description": "Erro ao processar a URL (ex: falha no download)."},
-        500: {"description": "Erro interno (ex: falha na IA)."}
-    }
+    summary="[JSON] Resume Artigo",
+    request=SummarizeJsonInputSerializer,
+    responses={200: SummarizeOutputSerializer}
 )
 @api_view(['POST'])
-@parser_classes([JSONParser]) # <-- APENAS JSON
+@parser_classes([JSONParser])
 def summarize_article_json_view(request):
-    """
-    Endpoint para resumir um artigo a partir de texto ou URL (JSON).
-    """
     serializer = SummarizeJsonInputSerializer(data=request.data)
-        
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-    validated_data = serializer.validated_data
-    input_val = validated_data.get('input_value')
-    is_url_val = validated_data.get('is_url', False)
-    query = validated_data.get('query', None)
+    input_val = serializer.validated_data['input_value']
+    is_url_val = serializer.validated_data['is_url']
+    query = serializer.validated_data.get('query')
     
-    input_type_str = 'url' if is_url_val else 'text'
-    
-    result = summarize_article(
-        input_value=input_val, 
-        input_type=input_type_str, 
-        natural_language_query=query
-    )
+    result = summarize_article(input_val, input_type='url' if is_url_val else 'text', natural_language_query=query)
     
     return _handle_summarize_response(result)
 
-
-# --- VIEW 2: RESUMO POR UPLOAD (PDF) ---
 @extend_schema(
-    summary="[UPLOAD] Resume um Artigo por Upload de PDF",
-    description="""Recebe um arquivo PDF via upload (multipart/form-data) 
-    e usa IA para gerar um resumo estruturado.
-    """,
-    
-    # --- MUDANÇA PRINCIPAL AQUI ---
-    # Vamos definir o schema do request manualmente.
+    summary="[UPLOAD] Resume PDF",
     request={
-        # 1. Definimos o 'content-type' que o Swagger deve usar
         'multipart/form-data': {
             'type': 'object',
-            # 2. Definimos os campos do formulário
-            'properties': {
-                'file': {
-                    'type': 'string',
-                    'format': 'binary'  # <-- A MÁGICA ACONTECE AQUI
-                },
-                'query': {
-                    'type': 'string'
-                }
-            },
-            # 3. Dizemos quais campos são obrigatórios
+            'properties': {'file': {'type': 'string', 'format': 'binary'}, 'query': {'type': 'string'}},
             'required': ['file']
         }
     },
-    # ---------------------------------
-    
-    responses={
-        200: SummarizeOutputSerializer,
-        400: {"description": "Erro de validação (ex: arquivo faltando ou formato inválido)."},
-        422: {"description": "Erro ao processar o arquivo (ex: PDF corrompido)."},
-        500: {"description": "Erro interno (ex: falha na IA)."}
-    }
+    responses={200: SummarizeOutputSerializer}
 )
-
 @api_view(['POST'])
 @parser_classes([MultiPartParser, FormParser])
 def summarize_article_file_view(request):
-    """
-    Endpoint para resumir um artigo a partir de upload de arquivo PDF.
-    """
-    # Para FormData, validamos usando o serializer também
-    serializer = SummarizeFormInputSerializer(data=request.data)
+    # Validação manual simples para arquivo
+    if 'file' not in request.data:
+        return Response({"error": "Arquivo não fornecido."}, status=status.HTTP_400_BAD_REQUEST)
     
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    file_obj = request.data['file']
+    query = request.data.get('query')
     
-    validated_data = serializer.validated_data
-    file_obj = validated_data.get('file')
-    query = validated_data.get('query', None) 
-    
-    if not file_obj.name.lower().endswith('.pdf'):
-        return Response(
-            {"error": "Formato de arquivo inválido. Por favor, envie um PDF."}, 
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    result = summarize_article(
-        input_value=file_obj, 
-        input_type='file', 
-        natural_language_query=query
-    )
+    # Extrai texto do arquivo enviado
+    text_result = extract_text_from_file_obj(file_obj)
+    if "error" in text_result:
+         return Response(text_result, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+         
+    # Agora chamamos a sumarização com o TEXTO extraído
+    from analyzer.services import summarize_article_with_gemini
+    result = summarize_article_with_gemini(text_result['text'], natural_language_query=query)
     
     return _handle_summarize_response(result)
 
 @extend_schema(
-    summary="Formata Texto com IA e Gera PDF",
-    description="Recebe um arquivo (.pdf ou .txt) e um estilo, formata o texto usando Gemini e gera PDF.",
+    summary="[JSON] Extrair Texto de Artigo",
+    description="Baixa o PDF (se URL) e retorna apenas o texto puro.",
+    request=SummarizeJsonInputSerializer, # Reutiliza o input simples
+    responses={200: ExtractTextOutputSerializer}
+)
+@api_view(['POST'])
+def extract_text_json_view(request):
+    serializer = SummarizeJsonInputSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    result = extract_text_content(
+        serializer.validated_data['input_value'],
+        is_url=serializer.validated_data['is_url']
+    )
+    if "error" in result:
+        return Response(result, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    return Response(result)
+
+@extend_schema(
+    summary="[UPLOAD] Extrair Texto de PDF",
+    description="Recebe upload de PDF e retorna apenas o texto puro.",
     request={
         'multipart/form-data': {
             'type': 'object',
-            'properties': {
-                'file': {
-                    'type': 'string',
-                    'format': 'binary'
-                },
-                'style': {
-                    'type': 'string'
-                },
-                'filename': {
-                    'type': 'string'
-                }
-            },
+            'properties': {'file': {'type': 'string', 'format': 'binary'}},
             'required': ['file']
         }
     },
+    responses={200: ExtractTextOutputSerializer}
+)
+@api_view(['POST'])
+@parser_classes([MultiPartParser, FormParser])
+def extract_text_file_view(request):
+    if 'file' not in request.data:
+        return Response({"error": "Arquivo não fornecido."}, status=status.HTTP_400_BAD_REQUEST)
+    
+    file_obj = request.data['file']
+    result = extract_text_from_file_obj(file_obj)
+    
+    if "error" in result:
+        return Response(result, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+    return Response(result)
 
+
+@extend_schema(
+    summary="Chat com Contexto do Artigo",
+    description="Recebe o texto do artigo (contexto) e o histórico de mensagens, e retorna a resposta da IA.",
+    request=ChatInputSerializer,
+    responses={200: ChatOutputSerializer}
+)
+@api_view(['POST'])
+def chat_document_view(request):
+    serializer = ChatInputSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    context = serializer.validated_data['context']
+    messages = serializer.validated_data['messages']
+    
+    # Converte a lista de objetos OrderedDict (do serializer) para lista de dicts simples
+    messages_list = [{"role": m['role'], "content": m['content']} for m in messages]
+    
+    result = chat_with_context(context, messages_list)
+    
+    if "error" in result:
+        return Response(result, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return Response(result)
+
+
+# --- ROTA DO FORMATADOR ---
+@extend_schema(
+    summary="Formata Texto",
+    request={
+        'multipart/form-data': {
+            'type': 'object',
+            'properties': {'file': {'type': 'string', 'format': 'binary'}, 'style': {'type': 'string'}, 'filename': {'type': 'string'}},
+            'required': ['file']
+        }
+    },
     responses={200: FormatTextOutputSerializer}
 )
 @api_view(['POST'])
 @parser_classes([MultiPartParser, FormParser])
 def format_text_view(request):
     serializer = FormatTextSerializer(data=request.data)
-
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
 
@@ -250,13 +237,10 @@ def format_text_view(request):
     style = serializer.validated_data.get('style')
     filename = serializer.validated_data.get('filename')
 
-    # ---- Lê/extrai o texto do arquivo enviado ---
     extracted_text = extract_text_from_file(uploaded_file)
-
-    # ---- Chama o Gemini para formatar ----
     success = format_text_with_gemini(extracted_text, style, filename)
 
     if success:
-        return Response({"message": "Texto formatado e PDF gerado com sucesso."})
+        return Response({"message": "Texto formatado."})
     else:
-        return Response({"error": "Falha ao formatar o texto."}, status=500)
+        return Response({"error": "Falha ao formatar."}, status=500)

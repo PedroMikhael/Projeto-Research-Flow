@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-// MUDANÇA: Importamos 'Star' (Estrela) e 'FilePlus2' (Nova Conversa)
 import { Search, Loader2, User, Bot, Filter, Star, FilePlus2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,9 +17,8 @@ import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch" 
-import { useToast } from "@/components/ui/use-toast" // Para as notificações bonitas
+import { useToast } from "@/components/ui/use-toast" 
 
-// --- COMPONENTE DE MENSAGEM DO USUÁRIO ---
 function UserMessage({ text }) {
   return (
     <div className="flex justify-end animate-in fade-in slide-in-from-bottom-2 duration-500 ease-out">
@@ -32,8 +30,8 @@ function UserMessage({ text }) {
   )
 }
 
-// --- COMPONENTE DE MENSAGEM DA API (COM OS ARTIGOS) ---
-function ApiMessage({ response, onLoadMore, onSaveArticle, savedUrls }) { // Recebe 'toast' e 'savedUrls'
+
+function ApiMessage({ response, onLoadMore, onSaveArticle, savedUrls }) { 
   const { message, articles } = response
   const hasMore = articles && articles.length === 25
   const [expandedMap, setExpandedMap] = useState(() => ({}))
@@ -54,7 +52,6 @@ function ApiMessage({ response, onLoadMore, onSaveArticle, savedUrls }) { // Rec
           <ul className="space-y-4">
             {articles.map((article, index) => {
               const isExpanded = !!expandedMap[index]
-              // MUDANÇA: Verifica se este artigo já está salvo
               const isSaved = savedUrls.has(article.url)
 
               return (
@@ -110,7 +107,7 @@ function ApiMessage({ response, onLoadMore, onSaveArticle, savedUrls }) { // Rec
                   {/* --- MUDANÇA: BOTÃO DE "SALVAR" MELHORADO --- */}
                   <div className="mt-4">
                     <Button
-                      variant={isSaved ? "default" : "ghost"} // Muda o estilo se estiver salvo
+                      variant={isSaved ? "default" : "ghost"} 
                       size="sm"
                       onClick={() => onSaveArticle(article)}
                       className={isSaved ? "text-white" : ""}
@@ -142,7 +139,6 @@ function ApiMessage({ response, onLoadMore, onSaveArticle, savedUrls }) { // Rec
   )
 }
 
-// --- COMPONENTE DE ANIMAÇÃO "CARREGANDO" ---
 function LoadingMessage() {
   return (
     <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-500 ease-out">
@@ -159,10 +155,8 @@ function LoadingMessage() {
 }
 
 
-// --- NOME DO ARQUIVO PARA SALVAR O CHAT ---
 const CHAT_HISTORY_KEY = "researchFlowChatHistory";
 
-// --- A PÁGINA PRINCIPAL ---
 export default function ExplorarPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -172,24 +166,20 @@ export default function ExplorarPage() {
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [sortBy, setSortBy] = useState("default")
   const [yearRange, setYearRange] = useState([1990, new Date().getFullYear()])
-  const [isOpenAccess, setIsOpenAccess] = useState(false)
+  const [isOpenAccess, setIsOpenAccess] = useState(true)
 
   const [offset, setOffset] = useState(0)
   const [lastQuery, setLastQuery] = useState("") 
   
-  const { toast } = useToast() // Pega a função de 'toast'
+  const { toast } = useToast() 
   
-  // MUDANÇA: Estado para controlar os artigos salvos (para o ícone da estrela)
   const [savedUrls, setSavedUrls] = useState(new Set())
 
-  // --- FUNÇÃO DE AUTO-SCROLL ---
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
-  // --- EFEITOS (useEffects) ---
 
-  // Efeito 1: Rola para baixo quando o chat cresce
   useEffect(() => {
     const lastMessage = messages[messages.length - 1]
     if (isLoading || (lastMessage && lastMessage.type === 'user')) {
@@ -197,36 +187,30 @@ export default function ExplorarPage() {
     }
   }, [messages, isLoading])
 
-  // Efeito 2: Salva o chat no localStorage sempre que ele mudar
   useEffect(() => {
-    // Não salva se o chat estiver vazio
     if (messages.length > 0) {
       localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(messages))
     }
   }, [messages])
 
-  // Efeito 3: Carrega o chat e os favoritos salvos QUANDO A PÁGINA ABRE
   useEffect(() => {
-    // Carrega o histórico do chat
+    
     const savedChat = localStorage.getItem(CHAT_HISTORY_KEY)
     if (savedChat) {
       setMessages(JSON.parse(savedChat))
     }
     
-    // Carrega os favoritos para o estado (para o ícone da estrela)
+    
     updateSavedUrls()
-  }, []) // O array vazio [] garante que isso só rode UMA VEZ no início
+  }, [])
 
-  // --- FUNÇÕES DE LÓGICA ---
 
-  // Atualiza o estado das Estrelas (ícones)
   const updateSavedUrls = () => {
      const savedItems = localStorage.getItem("researchFlowFavorites")
      const favorites = savedItems ? JSON.parse(savedItems) : []
      setSavedUrls(new Set(favorites.map(item => item.url)))
   }
 
-  // MUDANÇA: Função de Salvar (agora usa o Toast)
   const handleSaveArticle = (articleToSave) => {
     const savedItems = localStorage.getItem("researchFlowFavorites")
     const favorites = savedItems ? JSON.parse(savedItems) : []
@@ -244,9 +228,8 @@ export default function ExplorarPage() {
     favorites.push(articleToSave)
     localStorage.setItem("researchFlowFavorites", JSON.stringify(favorites))
     
-    // AVISA o menu lateral E o nosso estado local
     window.dispatchEvent(new Event('favoritesChanged'))
-    updateSavedUrls() // Atualiza os ícones de estrela
+    updateSavedUrls() 
     
     toast({
       title: "Artigo Salvo!",
@@ -254,7 +237,7 @@ export default function ExplorarPage() {
     })
   }
 
-  // Lógica da API (separada)
+ 
   const callApi = async (query, currentOffset) => {
     const requestBody = {
       query: query,
@@ -266,7 +249,6 @@ export default function ExplorarPage() {
     }
 
     try {
-      // *** USE O SEU IP CORRETO AQUI ***
       const response = await fetch("http://192.168.0.6:8000/api/search/", { 
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -287,14 +269,13 @@ export default function ExplorarPage() {
     }
   }
 
-  // --- FUNÇÕES DE AÇÃO DO CHAT ---
+ 
 
-  // MUDANÇA: Nova Função "Nova Conversa"
   const handleNewChat = () => {
-    setMessages([]) // Limpa o chat na tela
+    setMessages([])
     setLastQuery("")
     setOffset(0)
-    localStorage.removeItem(CHAT_HISTORY_KEY) // Limpa o histórico salvo
+    localStorage.removeItem(CHAT_HISTORY_KEY)
   }
 
   const handleSearch = async () => {
@@ -328,7 +309,7 @@ export default function ExplorarPage() {
 
   const applyFilters = async () => {
     setIsFilterOpen(false) 
-    if (!lastQuery) return // Se não buscou nada, só fecha o modal
+    if (!lastQuery) return 
     
     setIsLoading(true)
     setOffset(0) 
@@ -347,7 +328,7 @@ export default function ExplorarPage() {
     setIsLoading(false)
   }
 
-  // --- O LAYOUT JSX ---
+ 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col">
       {/* 1. A JANELA DE CHAT */}

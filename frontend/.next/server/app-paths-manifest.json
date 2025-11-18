@@ -1,0 +1,7 @@
+{
+  "/(auth)/cadastro/page": "app/(auth)/cadastro/page.js",
+  "/(dashboard)/chat/page": "app/(dashboard)/chat/page.js",
+  "/(dashboard)/explorar/page": "app/(dashboard)/explorar/page.js",
+  "/(dashboard)/dashboard/page": "app/(dashboard)/dashboard/page.js",
+  "/(dashboard)/projetos/page": "app/(dashboard)/projetos/page.js"
+}
