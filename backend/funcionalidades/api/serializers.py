@@ -36,7 +36,7 @@ class SearchQuerySerializer(serializers.Serializer):
     )
     is_open_access = serializers.BooleanField(
         required=False, 
-        default=False,
+        default=True,
         help_text="Filtrar apenas por artigos com PDF gratuito."
     )
 class ArticleSerializer(serializers.Serializer):
@@ -132,3 +132,25 @@ class FormatTextOutputSerializer(serializers.Serializer):
     pdf_path = serializers.CharField(allow_blank=True, required=False,
                                      help_text="Caminho do arquivo .pdf gerado (no servidor).")
     error = serializers.CharField(allow_blank=True, required=False)
+
+class ExtractTextOutputSerializer(serializers.Serializer):
+    text = serializers.CharField()
+    error = serializers.CharField(required=False)
+
+class ChatMessageSerializer(serializers.Serializer):
+    role = serializers.CharField()
+    content = serializers.CharField()
+
+class ChatInputSerializer(serializers.Serializer):
+    context = serializers.CharField(help_text="O texto completo do artigo.")
+    messages = ChatMessageSerializer(many=True)
+
+class ChatOutputSerializer(serializers.Serializer):
+    response = serializers.CharField()
+    error = serializers.CharField(required=False)
+    
+# O SummarizeInputSerializer antigo ainda é útil para manter compatibilidade se necessário,
+# mas o SummarizeJsonInputSerializer é o novo padrão.
+class SummarizeInputSerializer(serializers.Serializer):
+    input_value = serializers.CharField()
+    is_url = serializers.BooleanField(default=False)

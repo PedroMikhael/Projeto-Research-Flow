@@ -5,28 +5,24 @@ from dotenv import load_dotenv
 import requests
 import tempfile
 import re
-from typing import Optional
+from typing import Optional, List, Dict
 from PyPDF2 import PdfReader
 import urllib.parse
+from pathlib import Path
 
-# Carrega as variáveis do arquivo .env para o ambiente
-load_dotenv()
+env_path = Path(__file__).resolve().parent.parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
-# Configura a API do Google com a chave que está no .env
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Modelo Gemini padrão (pode ser sobrescrito por variável de ambiente GEMINI_MODEL)
-# Model name constants for convenience
 GEMINI_FLASH_2_0 = "gemini-2.0-flash"
 GEMINI_FLASH_2_5 = "gemini-2.5-flash"
 GEMINI_PRO_2_0 = "gemini-2.0-pro"
 GEMINI_PRO_2_5 = "gemini-2.5-pro"
 
-# Default model (can be overridden by environment variable GEMINI_MODEL)
-MODEL_NAME = os.getenv("GEMINI_MODEL", GEMINI_FLASH_2_0)
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest")
 
 def extract_first_json(text: str) -> Optional[str]:
-    """Extract the first balanced JSON object from text, ignoring braces inside strings."""
     start = text.find('{')
     if start == -1:
         return None
@@ -54,58 +50,133 @@ def extract_first_json(text: str) -> Optional[str]:
                 return text[start:i+1]
     return None
 
-
 def call_model(model, prompt_text: str, max_tokens: int = 4096) -> str:
-    """Call the generative model with a safe kwargs fallback."""
     try:
-        return model.generate_content(prompt_text, temperature=0, max_output_tokens=max_tokens).text
+        return model.generate_content(prompt_text, generation_config={"max_output_tokens": max_tokens, "temperature": 0.2}).text
     except TypeError:
         return model.generate_content(prompt_text).text
 
 def extract_pdf_text_from_file(file_input) -> Optional[str]:
-    """
-    Extrai texto de um arquivo PDF (seja um caminho de arquivo ou um 
-    objeto de arquivo/stream).
-    Retorna None em caso de falha.
-    """
     try:
-        # file_input pode ser um caminho (str) ou um stream (like-object)
         reader = PdfReader(file_input)
-        
         parts = []
         for page in reader.pages:
             text = page.extract_text()
             if text:
                 parts.append(text)
-                
         full_text = '\n\n'.join(parts).strip()
-        return full_text or None # Retorna None se o texto extraído estiver vazio
-        
+        return full_text or None
     except Exception as e:
         print(f"Erro ao ler/extrair PDF do arquivo: {e}")
         return None
 
-def fetch_pdf_text_from_url(url: str) -> Optional[str]:
-    """
-    Baixa um PDF a partir de uma URL e tenta extrair o texto usando PyPDF2.
-    Retorna None em caso de falha.
-    """
-    tmp_path = None
+def get_wayback_machine_url(target_url: str) -> Optional[str]:
+    print(f"Tentando resgatar via Wayback Machine: {target_url}")
     try:
-        resp = requests.get(url, stream=True, timeout=15)
+        api_url = f"http://archive.org/wayback/available?url={target_url}"
+        resp = requests.get(api_url, timeout=10)
+        data = resp.json()
+        if 'archived_snapshots' in data and 'closest' in data['archived_snapshots']:
+            snapshot_url = data['archived_snapshots']['closest']['url']
+            print(f"Cópia encontrada no Wayback Machine: {snapshot_url}")
+            return snapshot_url
+        else:
+            print("Nenhuma cópia encontrada no Wayback Machine.")
+            return None
+    except Exception as e:
+        print(f"Erro ao consultar Wayback Machine: {e}")
+        return None
+
+def resolve_semantic_scholar_url(url: str) -> Optional[str]:
+    match = re.search(r"semanticscholar\.org/paper/.*?([a-fA-F0-9]{40})", url)
+    if not match:
+        match = re.search(r"semanticscholar\.org/paper/([a-fA-F0-9]{40})", url)
+    
+    if match:
+        paper_id = match.group(1)
+        print(f"Detecado Semantic Scholar ID: {paper_id}. Buscando PDF via API...")
+        api_key = os.getenv("SEMANTIC_API_KEY")
+        headers = {'x-api-key': api_key} if api_key else {}
+        try:
+            api_url = f"https://api.semanticscholar.org/graph/v1/paper/{paper_id}?fields=openAccessPdf,url"
+            resp = requests.get(api_url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                open_access = data.get('openAccessPdf')
+                if open_access and open_access.get('url'):
+                    pdf_url = open_access.get('url')
+                    print(f"PDF encontrado via API: {pdf_url}")
+                    return pdf_url
+        except Exception as e:
+            print(f"Erro ao resolver Semantic Scholar URL: {e}")
+    return None
+
+def fetch_pdf_text_from_url(url: str) -> Optional[str]:
+    tmp_path = None
+    target_url = url
+    resolved_url = resolve_semantic_scholar_url(url)
+    if resolved_url:
+        target_url = resolved_url
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'Referer': 'https://www.google.com/',
+        'Upgrade-Insecure-Requests': '1'
+    }
+
+    try:
+        print(f"Baixando (Tentativa 1): {target_url}")
+        resp = requests.get(target_url, headers=headers, stream=True, timeout=20)
         resp.raise_for_status()
-        ctype = resp.headers.get('content-type', '')
-        if 'text/html' in ctype.lower():
+    except Exception as e:
+        print(f"Falha no download direto: {e}")
+        print("Ativando protocolo de resgate (Wayback Machine)...")
+        wayback_url = get_wayback_machine_url(target_url)
+        if wayback_url:
+            try:
+                print(f"Baixando do Arquivo: {wayback_url}")
+                resp = requests.get(wayback_url, headers=headers, stream=True, timeout=30)
+                resp.raise_for_status()
+            except Exception as wb_e:
+                print(f"Falha também no Wayback Machine: {wb_e}")
+                return None
+        else:
+            print("Sem backup disponível.")
+            return None
+
+    try:
+        content_type = resp.headers.get('content-type', '').lower()
+        final_url = resp.url
+
+        if 'application/pdf' not in content_type:
+            print(f"Conteúdo é HTML ({content_type}). Procurando link do PDF na página...")
             html = resp.text
-            m = re.search(r'href=["\']([^"\']+\.pdf)["\']', html, flags=re.IGNORECASE)
-            if not m:
-                m = re.search(r'href=["\']([^"\']+/pdf/[^"\']+\.pdf)["\']', html, flags=re.IGNORECASE)
-            if m:
-                resp = requests.get(urllib.parse.urljoin(url, m.group(1)), stream=True, timeout=15)
+            
+            m_meta = re.search(r'<meta\s+name=["\']citation_pdf_url["\']\s+content=["\']([^"\']+)["\']', html, flags=re.IGNORECASE)
+            pdf_link = None
+            if m_meta:
+                pdf_link = m_meta.group(1)
+            
+            if not pdf_link:
+                m_href = re.search(r'href=["\']([^"\']+\.pdf)["\']', html, flags=re.IGNORECASE)
+                if m_href:
+                    pdf_link = m_href.group(1)
+                else:
+                    m_view = re.search(r'href=["\']([^"\']+/article/view/[^"\']+/[\d]+)["\']', html, flags=re.IGNORECASE) 
+                    if not m_view:
+                        m_view = re.search(r'href=["\']([^"\']+/pdf/[^"\']+)["\']', html, flags=re.IGNORECASE)
+                    if m_view:
+                        pdf_link = m_view.group(1)
+
+            if pdf_link:
+                pdf_link = urllib.parse.urljoin(final_url, pdf_link)
+                print(f"Redirecionando para o PDF real: {pdf_link}")
+                resp = requests.get(pdf_link, headers=headers, stream=True, timeout=20)
                 resp.raise_for_status()
-            elif '/abs/' in url:
-                resp = requests.get(url.replace('/abs/', '/pdf/') + ('' if url.endswith('.pdf') else '.pdf'), stream=True, timeout=15)
-                resp.raise_for_status()
+            else:
+                print("Não foi possível encontrar um link de PDF nesta página HTML.")
+                return None
 
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
             for chunk in resp.iter_content(chunk_size=8192):
@@ -113,90 +184,106 @@ def fetch_pdf_text_from_url(url: str) -> Optional[str]:
                     tmp.write(chunk)
             tmp_path = tmp.name
 
-        reader = PdfReader(tmp_path)
-        parts = [p.extract_text() or '' for p in reader.pages]
-        return '\n\n'.join(parts).strip() or None
+        try:
+            reader = PdfReader(tmp_path)
+            parts = []
+            for p in reader.pages:
+                text = p.extract_text()
+                if text:
+                    parts.append(text)
+            
+            full_text = '\n\n'.join(parts).strip()
+            if not full_text:
+                return None
+            return full_text
+            
+        except Exception as e:
+            print(f"Erro ao ler o arquivo PDF baixado: {e}")
+            return None
+
     except Exception as e:
         print(f"Erro ao obter/extrair PDF: {e}")
         return None
     finally:
         if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except Exception:
-                pass
+            try: os.remove(tmp_path)
+            except Exception: pass
 
+def extract_text_content(input_value: str, is_url: bool = False) -> dict:
+    text = ""
+    if is_url:
+        text = fetch_pdf_text_from_url(input_value)
+        if not text:
+            return {"error": "Falha ao baixar/ler o PDF."}
+    else:
+        text = input_value or ''
+
+    if not text.strip():
+        return {"error": "Texto vazio."}
+    return {"text": text}
+
+def extract_text_from_file_obj(file_obj) -> dict:
+    try:
+        reader = PdfReader(file_obj)
+        parts = [p.extract_text() or '' for p in reader.pages]
+        text = '\n\n'.join(parts).strip()
+        if not text:
+             return {"error": "Não foi possível extrair texto do arquivo PDF."}
+        return {"text": text}
+    except Exception as e:
+        return {"error": f"Erro ao ler arquivo: {str(e)}"}
+
+def chat_with_context(context_text: str, messages: List[Dict[str, str]]) -> dict:
+    limit_chars = 100000
+    
+    prompt_system = f"""
+    Você é um assistente acadêmico especialista.
+    Use o seguinte texto extraído de um artigo científico como sua única fonte de verdade para responder à pergunta do usuário.
+    
+    --- INÍCIO DO ARTIGO ---
+    {context_text[:limit_chars]}
+    --- FIM DO ARTIGO ---
+
+    Instruções:
+    1. Responda de forma direta, educada e técnica.
+    2. Se a resposta não estiver no contexto, diga que o artigo não menciona isso.
+    3. Use formatação Markdown para deixar a resposta clara.
+    """
+    try:
+        model = genai.GenerativeModel("gemini-2.0-flash") # Usando um modelo estável
+        
+        # 1. Constrói o histórico da conversa para dar memória à IA
+        chat_history_str = ""
+        for msg in messages:
+             # Acessa com get() para evitar erros
+             role = "Usuário" if msg.get('role') == 'user' else "Assistente"
+             chat_history_str += f"{role}: {msg.get('content')}\n"
+        
+        # 2. Pega a última pergunta do usuário de forma segura
+        last_user_msg = messages[-1].get('content') if messages and messages[-1].get('role') == 'user' else "Qual é o principal tema deste documento?"
+        
+        full_prompt = f"{prompt_system}\n\nHistórico da Conversa:\n{chat_history_str}\n\nUsuário: {last_user_msg}\nResposta:"
+        
+        response = model.generate_content(full_prompt)
+        return {"response": response.text}
+    except Exception as e:
+        # Retorna o erro exato para debugging
+        return {"error": str(e)}
 
 def summarize_article_with_gemini(article_text: str, natural_language_query: Optional[str] = None) -> dict:
-    """
-    Envia o texto do artigo para o Gemini e pede um resumo estruturado.
-
-    Retorna um dicionário com as chaves: problem, methodology, results, conclusion
-    Em caso de erro, retorna um dicionário com a chave 'error' e mensagem.
-    """
-    # Limpa/encaixa o prompt para que o modelo retorne apenas JSON
     prompt = """
     Você é um assistente que resume artigos acadêmicos. Sua tarefa é produzir
     um objeto JSON com as seguintes chaves obrigatórias: "problem", "methodology",
     "results", "conclusion". Cada chave deve conter um resumo detalhado sobre o artigo fornecido.
 
     Regras estritas:
-    - Retorne APENAS um objeto JSON válido (Com explicações, mais textos adicionais).
+    - Retorne APENAS um objeto JSON válido.
     - Mantenha a linguagem em português e seja objetivo.
     - Faça uma explicação completa e clara para cada seção.
-    - Traga também detalhes específicos do artigo, como nomes de métodos, métricas e resultados numéricos.
-
-    Exemplo de casos de uso:
-        **Consulta usuário:** "Resuma o artigo "Attention is all you need" com detalhes técnicos."
-        **Sua saída: {
-                        "problem": {
-                            description: Descreve qual é o problema central abordado pelo artigo e sua relevância dentro do campo de estudo.,
-                            context: Apresenta o cenário teórico ou prático em que o problema se insere, incluindo limitações ou lacunas de pesquisas anteriores.,
-                            objective: Explica o principal objetivo ou motivação do trabalho — o que os autores buscam resolver ou melhorar.
-                        },
-                        "methodology": {
-                            approach: Resumo do método, modelo ou técnica proposta para resolver o problema.,
-                            components: Principais elementos ou etapas da metodologia, como arquitetura, algoritmos, experimentos ou procedimentos analíticos.,
-                            data_or_tools: Informações sobre conjuntos de dados, ferramentas, frameworks ou tecnologias utilizadas.,
-                            complexity_or_efficiency: Discussão sobre desempenho, custo computacional ou vantagens em relação a métodos anteriores.
-                        },
-                        results: {
-                            datasets_or_experiments: Descrição dos experimentos realizados ou dados analisados.,
-                            performance_or_findings: Principais resultados quantitativos e qualitativos, métricas usadas e comparações com abordagens existentes.,
-                            interpretation: Análise dos resultados e o que eles indicam em relação ao problema proposto.
-                        },
-                        conclusion: {
-                            summary: Síntese geral das descobertas e contribuições do artigo.,
-                            implications: Impactos teóricos, práticos ou futuros da pesquisa.,
-                            limitations_or_future_work: Limitações identificadas e direções sugeridas para trabalhos futuros.
-                        }
-                    }
     """
-    consulta = f"""
-        Processe a seguinte entrada do usuário:
-        **Consulta do Usuário:** "{natural_language_query}"
-        **Sua Saída:**
-    """
-    safe_text = article_text[:50000]  # Limita o texto para evitar exceder tokens
-    full_prompt = f"{prompt}\n{safe_text}\n\nSua saída:"
+    full_prompt = f"{prompt}\n\nTexto do Artigo:\n{article_text[:50000]}\n\nSua saída JSON:"
     model = genai.GenerativeModel(MODEL_NAME)
-    # Few-shot (2 exemplos) em português. Cada Saída é APENAS um objeto JSON válido.
-    few_shot = """
-        Entrada: ""Rede neural convolucional leve para classificação de imagens; testes em CIFAR-10 atingiram 92 porcento de acurácia com menor custo computacional.""
-        Saída:
-        {"problem": "Necessidade de classificar imagens com eficiência computacional.", "methodology": "Arquitetura CNN leve otimizada para reduzir parâmetros.", "results": "Acurácia de 92 porcento em CIFAR-10 com redução de parâmetros.", "conclusion": "Bom trade-off entre desempenho e custo computacional."}
-
-        Geral:
-        Entrada: "artigo + consulta do usuário"
-        Saída:
-        {"problem": "...", 
-        "methodology": "...", 
-        "results": "...", 
-        "conclusion": "..."}
-    """
-
-    # Envia few-shot + prompt
-    raw = call_model(model, few_shot + "\n" + full_prompt + consulta)
+    raw = call_model(model, full_prompt)
     cleaned = (raw or '').replace('```json', '').replace('```', '').strip()
     try:
         data = json.loads(cleaned)
@@ -209,7 +296,6 @@ def summarize_article_with_gemini(article_text: str, natural_language_query: Opt
         except Exception:
             return {"error": "Resposta inválida do modelo de IA.", "raw": (raw or '')[:1000]}
 
-    # Normalize fields: model may return nested dicts/lists; convert them to readable strings
     def _normalize_field(v):
         if v is None:
             return ''
@@ -226,44 +312,14 @@ def summarize_article_with_gemini(article_text: str, natural_language_query: Opt
         'results': _normalize_field(data.get('results')),
         'conclusion': _normalize_field(data.get('conclusion')),
     }
-    
 
-def summarize_article(input_value, input_type: str = 'text', natural_language_query: Optional[str] = None) -> dict:
-    """
-    Wrapper principal para resumir artigos.
-    Aceita texto, URL de PDF ou um arquivo/caminho de PDF.
-
-    Args:
-        input_value: O conteúdo (texto, URL ou objeto/caminho de arquivo).
-        input_type: 'text', 'url' ou 'file'.
-        natural_language_query: (Opcional) A consulta específica do usuário.
-
-    Retorna:
-        Um dicionário com o resumo ou um dicionário de erro.
-    """
-    text = None
-    
-    if input_type == 'url':
+def summarize_article(input_value: str, is_url: bool = False) -> dict:
+    if is_url:
         text = fetch_pdf_text_from_url(input_value)
         if not text:
-            return {"error": "Falha ao baixar/ler o PDF da URL.", "details": "Não foi possível obter texto a partir da URL fornecida."}
-            
-    elif input_type == 'file':
-        # input_value aqui deve ser o objeto do arquivo (ex: request.files['file'])
-        # ou um caminho de arquivo temporário (ex: tmp_path)
-        text = extract_pdf_text_from_file(input_value)
-        if not text:
-            return {"error": "Falha ao ler o arquivo PDF.", "details": "Não foi possível extrair texto do arquivo PDF fornecido."}
-            
-    elif input_type == 'text':
-        text = input_value or ''
-        
+            return {"error": "Falha ao baixar/ler o PDF."}
     else:
-        return {"error": "Tipo de entrada (input_type) inválido.", "details": "Use 'text', 'url' ou 'file'."}
-
+        text = input_value or ''
     if not text.strip():
         return {"error": "Texto vazio para resumir."}
-
-    return summarize_article_with_gemini(text, natural_language_query=natural_language_query)
-
-
+    return summarize_article_with_gemini(text)

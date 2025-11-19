@@ -1,6 +1,6 @@
 "use client"
 
-import { Home, Search, FileText, PenTool, FolderOpen, User, LogOut, BookOpen } from "lucide-react"
+import { Home, Search, FileText, PenTool, FolderOpen, User, LogOut, BookOpen, MessageSquareText } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -17,6 +17,7 @@ import {
 const navItems = [
   { title: "Início", icon: Home, href: "/dashboard" },
   { title: "Explorar Artigos", icon: Search, href: "/explorar" },
+  { title: "Chat Inteligente", icon: MessageSquareText, href: "/chat" },
   { title: "Analisar com IA", icon: FileText, href: "/analisar" },
   { title: "Assistente de Escrita", icon: PenTool, href: "/escrever" },
   { title: "Meus Projetos", icon: FolderOpen, href: "/projetos" },

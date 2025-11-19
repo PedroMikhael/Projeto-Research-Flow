@@ -1,46 +1,39 @@
 "use client"
 
 import { useState, useEffect } from "react"
-// MUDANÇA: Imports atualizados
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, Calendar, Bookmark, Brain } from "lucide-react"
-import { useRouter } from "next/navigation" // Para o redirecionamento
+import { Trash2, Calendar, Bookmark, MessageSquareText } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 export default function ProjetosPage() {
   const [savedArticles, setSavedArticles] = useState([])
   const router = useRouter()
 
-  // --- Carrega os artigos salvos do localStorage ---
   useEffect(() => {
     const savedItems = localStorage.getItem("researchFlowFavorites")
     const favorites = savedItems ? JSON.parse(savedItems) : []
     setSavedArticles(favorites)
   }, [])
 
-  // --- Função para deletar um favorito ---
   const handleDelete = (urlToDelete) => {
-    // Filtra o artigo para fora da lista
     const newFavorites = savedArticles.filter((item) => item.url !== urlToDelete)
-    // Atualiza o estado
     setSavedArticles(newFavorites)
-    // Atualiza o localStorage
     localStorage.setItem("researchFlowFavorites", JSON.stringify(newFavorites))
+    window.dispatchEvent(new Event('favoritesChanged'))
   }
 
-  // --- Função para analisar (Etapa 3 do seu plano) ---
-  const handleAnalyze = (articleUrl) => {
-    // Redireciona para /analisar e passa a URL como um parâmetro de busca
-    router.push(`/analisar?url=${encodeURIComponent(articleUrl)}`)
+  const handleChat = (articleUrl) => {
+    router.push(`/chat?url=${encodeURIComponent(articleUrl)}`)
   }
 
   return (
-    <div className="space-y-6 p-6"> {/* Adicionado um padding padrão */}
+    <div className="space-y-6 p-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Meus Artigos Salvos</h1>
         <p className="text-muted-foreground">
-          Gerencie e analise os artigos que você favoritou.
+          Gerencie os artigos que você favoritou para leitura posterior.
         </p>
       </div>
 
@@ -50,19 +43,18 @@ export default function ProjetosPage() {
         </h2>
         
         {savedArticles.length === 0 && (
-            <Card className="text-center p-8">
-                <Bookmark className="mx-auto h-12 w-12 text-gray-400" />
+            <Card className="text-center p-8 border-dashed">
+                <Bookmark className="mx-auto h-12 w-12 text-gray-300" />
                 <h3 className="mt-4 text-lg font-semibold">Nenhum artigo salvo</h3>
                 <p className="mt-2 text-sm text-muted-foreground">
-                    Vá para a página "Explorar Artigos" e clique no ícone "Salvar" 
-                    para adicionar seus artigos favoritos aqui.
+                    Vá para a página "Explorar Artigos" e clique no botão "Salvar" 
+                    para adicionar seus favoritos aqui.
                 </p>
             </Card>
         )}
 
-        {/* Mapeia os artigos salvos */}
         {savedArticles.map((article) => (
-          <Card key={article.url}>
+          <Card key={article.url} className="hover:shadow-md transition-shadow">
             <CardHeader>
               <div className="flex items-start justify-between">
                 <div className="flex-1">
@@ -80,7 +72,7 @@ export default function ProjetosPage() {
                       {article.year}
                     </span>
                   </CardDescription>
-                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
                     {article.authors.join(", ")}
                   </p>
                 </div>
@@ -88,9 +80,9 @@ export default function ProjetosPage() {
             </CardHeader>
             <CardContent>
               <div className="flex gap-2">
-                <Button onClick={() => handleAnalyze(article.url)} size="sm">
-                  <Brain className="mr-2 h-4 w-4" />
-                  Perguntar à IA (Analisar)
+                <Button onClick={() => handleChat(article.url)} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white">
+                  <MessageSquareText className="mr-2 h-4 w-4" />
+                  Conversar com a IA
                 </Button>
                 <Button
                   onClick={() => handleDelete(article.url)}

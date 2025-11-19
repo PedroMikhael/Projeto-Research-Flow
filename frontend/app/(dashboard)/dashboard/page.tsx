@@ -1,7 +1,8 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { Search, Brain, PenTool } from "lucide-react"
+// MUDANÇA: Adicionado MessageSquareText
+import { Search, Brain, PenTool, MessageSquareText } from "lucide-react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { InstitutionalFooter } from "@/components/institutional-footer"
@@ -14,6 +15,15 @@ const cards = [
     href: "/explorar",
     color: "bg-blue-500",
   },
+  // --- NOVO CARD AQUI ---
+  {
+    title: "Chat Inteligente",
+    description: "Converse com seus artigos e tire dúvidas específicas com IA",
+    icon: MessageSquareText,
+    href: "/chat",
+    color: "bg-orange-500",
+  },
+  // ---------------------
   {
     title: "Analisar com IA",
     description: "Gere resumos e insights automáticos de artigos",
@@ -41,7 +51,8 @@ export default function DashboardPage() {
           <p className="text-gray-600 dark:text-gray-400">Continue sua jornada de pesquisa acadêmica com IA.</p>
         </div>
 
-        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+        {/* MUDANÇA: Alterado para lg:grid-cols-4 para caber os 4 cards lado a lado */}
+        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
           {cards.map((card, index) => (
             <motion.div
               key={card.href}
@@ -50,13 +61,13 @@ export default function DashboardPage() {
               transition={{ duration: 0.4, delay: index * 0.1 }}
             >
               <Link href={card.href}>
-                <Card className="group cursor-pointer transition-all hover:shadow-lg dark:hover:shadow-blue-500/10">
+                <Card className="group h-full cursor-pointer transition-all hover:shadow-lg dark:hover:shadow-blue-500/10">
                   <CardHeader>
                     <div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-lg ${card.color}`}>
                       <card.icon className="h-6 w-6 text-white" />
                     </div>
                     <CardTitle className="text-xl">{card.title}</CardTitle>
-                    <CardDescription className="text-base">{card.description}</CardDescription>
+                    <CardDescription className="text-base pt-2">{card.description}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <span className="text-sm font-medium text-blue-600 group-hover:underline dark:text-blue-400">

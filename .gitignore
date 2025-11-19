@@ -15,6 +15,8 @@ pip-wheel-metadata/
 
 # Node.js (Obrigatório)
 /node_modules
+node_modules/
+out/
 
 # === ARQUIVOS DE BUILD E CACHE ===
 # Next.js

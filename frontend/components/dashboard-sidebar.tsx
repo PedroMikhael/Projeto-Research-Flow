@@ -1,17 +1,26 @@
 "use client"
 
-import { Search, GraduationCap, Menu, Brain, PenTool, FileText } from "lucide-react"
+import { Search, GraduationCap, Menu, Brain, PenTool, FileText, MessageSquareText } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+// --- NOVOS IMPORTS ---
+import { Badge } from "@/components/ui/badge"
+
 
 const menuItems = [
   {
     title: "Explorar Artigos",
     icon: Search,
     href: "/explorar",
+  },
+  // --- NOVO ITEM DO CHAT ---
+  {
+    title: "Chat Inteligente",
+    icon: MessageSquareText,
+    href: "/chat",
   },
   {
     title: "Analisar com IA",
@@ -24,7 +33,7 @@ const menuItems = [
     href: "/escrever",
   },
   {
-    title: "Minhas Pesquisas",
+    title: "Meus Projetos", // Renomeado para consistência
     icon: FileText,
     href: "/projetos",
   },
@@ -32,6 +41,9 @@ const menuItems = [
 
 function SidebarContent() {
   const pathname = usePathname()
+  
+  // --- HOOK DO CONTADOR ---
+ 
 
   return (
     <div className="flex h-full flex-col">
@@ -62,7 +74,8 @@ function SidebarContent() {
                 )}
               >
                 <item.icon className="h-5 w-5" />
-                <span>{item.title}</span>
+                <span className="flex-1">{item.title}</span>
+                
               </div>
             </Link>
           )
