@@ -95,22 +95,6 @@ export default function EscreverPage() {
           </CardContent>
         </Card>
 
-        {/* Section 2: Direct Text Input */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Texto direto</CardTitle>
-            <CardDescription>Digite ou cole seu texto aqui para formatação</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Textarea
-              placeholder="Digite ou cole seu texto aqui..."
-              value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
-              className="min-h-[300px] resize-none"
-            />
-          </CardContent>
-        </Card>
-
         {/* Section 3: File Upload */}
         <Card>
           <CardHeader>

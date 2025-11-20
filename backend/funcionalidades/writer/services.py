@@ -119,7 +119,7 @@ def convert_text_to_latex_file(response: str, filename) -> str:
     folder_path = './arquivos'
     os.makedirs(folder_path, exist_ok=True)
     filename = filename.replace(' ', '_')  # Remove espaços do nome do arquivo
-    output_path = os.path.join(folder_path, f'{filename}.tex')
+    output_path = os.path.join(folder_path, f'{filename}_formatado.tex')
     try:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(response)

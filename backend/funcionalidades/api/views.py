@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from drf_spectacular.utils import extend_schema
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from pathlib import Path
 
 # Importa TODOS os serializers
 from .serializers import (
@@ -235,10 +236,10 @@ def format_text_view(request):
     serializer = FormatTextSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
-
     uploaded_file = serializer.validated_data['file']
+    print(type(uploaded_file))
+    filename = uploaded_file.stemfilename = Path(uploaded_file.name).stem
     style = serializer.validated_data.get('style')
-    filename = serializer.validated_data.get('filename')
 
     extracted_text = extract_text_from_file(uploaded_file)
     success = format_text_with_gemini(extracted_text, style, filename)
