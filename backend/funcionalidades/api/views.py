@@ -226,7 +226,7 @@ def chat_document_view(request):
     request={
         'multipart/form-data': {
             'type': 'object',
-            'properties': {'file': {'type': 'string', 'format': 'binary'}, 'style': {'type': 'string'}, 'filename': {'type': 'string'}},
+            'properties': {'file': {'type': 'string', 'format': 'binary'}, 'style': {'type': 'string'}},
             'required': ['file']
         }
     },
