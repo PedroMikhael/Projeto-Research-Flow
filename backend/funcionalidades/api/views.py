@@ -4,6 +4,8 @@ from rest_framework import status
 from drf_spectacular.utils import extend_schema
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from pathlib import Path
+import os
+from django.http import FileResponse
 
 # Importa TODOS os serializers
 from .serializers import (
@@ -236,15 +238,21 @@ def format_text_view(request):
     serializer = FormatTextSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
-    uploaded_file = serializer.validated_data['file']
-    print(type(uploaded_file))
-    filename = uploaded_file.stemfilename = Path(uploaded_file.name).stem
-    style = serializer.validated_data.get('style')
-
+    uploaded_file = request.data['file'] # Ou via serializer.validated_data['file']
+    filename = Path(uploaded_file.name).stem
+    style = request.data.get('style')
     extracted_text = extract_text_from_file(uploaded_file)
-    success = format_text_with_gemini(extracted_text, style, filename)
+    
+    # Agora esperamos o caminho do arquivo, não True/False
+    pdf_path = format_text_with_gemini(extracted_text, style, filename)
 
-    if success:
-        return Response({"message": "Texto formatado."})
+    if pdf_path and os.path.exists(pdf_path):
+        pdf_file = open(pdf_path, 'rb')
+        
+        # Retorna o arquivo para download
+        response = FileResponse(pdf_file, as_attachment=True, filename=f"{filename}_formatado.pdf")
+        return response
     else:
-        return Response({"error": "Falha ao formatar."}, status=500)
+        return Response({"error": "Falha ao gerar o arquivo PDF."}, status=500)
+    
+    
