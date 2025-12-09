@@ -91,7 +91,7 @@ export default function ChatPage() {
     window.location.href = "/chat"; 
   };
 
-  const API_BASE = "http://192.168.0.3:8000/api"
+  const API_BASE = "http://localhost:8000/api"
 
   // =======================================
   // --- LOCAL STORAGE ADDED ---

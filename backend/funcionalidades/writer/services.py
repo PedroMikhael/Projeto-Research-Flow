@@ -7,6 +7,8 @@ from typing import Optional
 from PyPDF2 import PdfReader
 from pylatex import Document, Command, Package
 from pylatex.utils import NoEscape
+import subprocess
+from pathlib import Path
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -67,29 +69,30 @@ def extract_text_from_file(uploaded_file):
 
 def convert_text_to_latex_file(conteudo_limpo: str, filename) -> str:
     """Salva o conteúdo LIMPO em um arquivo .tex temporário."""
-    folder_path = './arquivos'
-    os.makedirs(folder_path, exist_ok=True)
+    base_dir = Path(__file__).resolve().parent.parent
+    folder_path = base_dir / 'arquivos'
+    folder_path.mkdir(parents=True, exist_ok=True)
     
     filename = filename.replace(' ', '_')
-    output_path = os.path.join(folder_path, f'{filename}_temp.tex')
+    output_path = folder_path / f'{filename}_temp.tex'
     
     try:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(conteudo_limpo)
-        return output_path
+        print(f"DEBUG: Arquivo .tex salvo em: {output_path}")
+        return str(output_path)
     except Exception as e:
         print(f"Erro ao salvar temp tex: {e}")
         return ""
 
 def convert_tex_file_to_pdf(tex_file_path: str) -> Optional[str]:
-    """Usa PyLaTeX para gerar o PDF final."""
+    """Usa PyLaTeX para gerar o .tex e subprocess para compilar o PDF (seguro contra erros de encoding)."""
     try:
         # Configurações de Geometria e Documento
         geometry_options = {"tmargin": "2.5cm", "lmargin": "3cm", "rmargin": "2cm", "bmargin": "2.5cm"}
         doc = Document(geometry_options=geometry_options)
         
-        # --- ADICIONANDO PACOTES CRÍTICOS ---
-        # Isso evita erros de "Undefined control sequence" em matemática
+        # --- ADICIONANDO PACOTES ---
         doc.packages.append(Package('amsmath'))
         doc.packages.append(Package('amssymb'))
         doc.packages.append(Package('amsfonts'))
@@ -97,28 +100,67 @@ def convert_tex_file_to_pdf(tex_file_path: str) -> Optional[str]:
         doc.packages.append(Package('float'))
         doc.packages.append(Package('inputenc', options=['utf8']))
         doc.packages.append(Package('fontenc', options=['T1']))
-        doc.packages.append(Package('babel', options=['brazil'])) # Ajuste conforme idioma
+        doc.packages.append(Package('babel', options=['brazil']))
+        doc.packages.append(Package('hyperref'))
         
-        # Lê o conteúdo gerado pela IA
+        # Lê o conteúdo gerado pela IA (temp file)
         with open(tex_file_path, 'r', encoding='utf-8') as f:
             content = f.read()
             
         # Adiciona o conteúdo ao documento
         doc.append(NoEscape(content))
         
-        # Define nome de saída
-        pdf_file_path = tex_file_path.replace('_temp.tex', '')
+        # Define nome base (sem extensão) para o arquivo final
+        base_filename = tex_file_path.replace('_temp.tex', '')
         
-        print(f"Iniciando compilação do arquivo: {pdf_file_path}...")
+        print(f"Gerando arquivo estruturado: {base_filename}.tex")
         
-        # Gera o PDF
-        # clean_tex=False permite que você veja o .tex gerado se der erro
-        doc.generate_pdf(pdf_file_path, clean_tex=False, compiler='pdflatex')
+        # 1. Gera apenas o arquivo .tex final (estrutura + conteúdo)
+        # O PyLaTeX adiciona .tex automaticamente, então passamos sem extensão
+        doc.generate_tex(base_filename)
         
-        full_path = pdf_file_path + ".pdf"
-        if os.path.exists(full_path):
-            print(f"PDF gerado com sucesso: {full_path}")
-            return full_path
+        # 2. Compilação Manual Robusta
+        # Define diretório de trabalho e nome do arquivo
+        working_dir = os.path.dirname(os.path.abspath(base_filename))
+        tex_filename = os.path.basename(base_filename) + ".tex"
+        pdf_filename = os.path.basename(base_filename) + ".pdf"
+        full_pdf_path = os.path.join(working_dir, pdf_filename)
+
+        print(f"Iniciando compilação manual do arquivo: {tex_filename}...")
+
+        # Comando do pdflatex
+        cmd = ['pdflatex', '-interaction=nonstopmode', tex_filename]
+        
+        # Executa o processo
+        # errors='replace' é o segredo: troca caracteres inválidos do log por  em vez de travar
+        process = subprocess.run(
+            cmd,
+            cwd=working_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding='utf-8',
+            errors='replace' 
+        )
+
+        if process.returncode == 0:
+            if os.path.exists(full_pdf_path):
+                print(f"PDF gerado com sucesso: {full_pdf_path}")
+                return full_pdf_path
+        else:
+            print("="*30)
+            print("ERRO DE COMPILAÇÃO LATEX (LOG):")
+            # Mostra as últimas 20 linhas do erro para debug
+            print('\n'.join(process.stdout.splitlines()[-20:]))
+            print("="*30)
+            return None
+            
+        return None
+        
+    except Exception as e:
+        print("="*30)
+        print(f"ERRO GERAL NO PROCESSO: {e}")
+        print("="*30)
         return None
         
     except Exception as e:
@@ -128,7 +170,18 @@ def convert_tex_file_to_pdf(tex_file_path: str) -> Optional[str]:
         print("="*30)
         return None
 
-def format_text_with_gemini(input_text, style, filename) -> Optional[str]:
+def validar_balanceamento_latex(texto: str) -> bool:
+    """Verifica se o número de begins e ends parece correto."""
+    num_begin = texto.count("\\begin{")
+    num_end = texto.count("\\end{")
+    
+    if num_begin != num_end:
+        print(f"AVISO: O código gerado parece desbalanceado! \\begin: {num_begin}, \\end: {num_end}")
+        # Se quiser ser agressivo, retorne False para nem tentar compilar
+        # return False 
+    return True
+
+def format_text_with_gemini(input_text, style, filename) -> dict:
     few_shot = decide_fewshot(style)
     
     prompt = f"""
@@ -143,10 +196,20 @@ def format_text_with_gemini(input_text, style, filename) -> Optional[str]:
         6. Do NOT include \\begin{{document}} or \\end{{document}}.
         7. Start directly with \\section{{Title}} or with the content.
         8. For mathematics, use ONLY LaTeX commands ($\\alpha$, $\\beta$), NOT Unicode symbols.
-        9. Desired style: {few_shot}.
+        9. TEXT ALIGNMENT: The body text MUST be fully justified (standard LaTeX behavior). 
+        10. PROHIBITED: Do NOT use the commands `\\centering` or `\\begin{{center}}` for the main body text. Only center the Main Title if necessary, then immediately switch back.
+        11. NO DEEP NESTING: Do NOT nest lists (`itemize` or `enumerate`) more than 2 levels deep. Deep nesting causes the compiler to crash ("Too deeply nested" error).
+        12. CLOSE ALL ENVIRONMENTS: Every `\\begin{{...}}` MUST have a matching `\\end{{...}}`. Double-check that no list is left open.
+        13. ESCAPE SPECIAL CHARACTERS: You MUST escape reserved characters in text mode to avoid "Runaway argument":
+            - `%` becomes `\\%`
+            - `_` becomes `\\_`
+            - `&` becomes `\\&`
+            - `$` becomes `\\$`
+            - `#` becomes `\\#`
+        14. Desired style: {few_shot}.
         
         Original Text:
-        {input_text[:25000]}
+        {input_text[:50000]}
 
         The API must translate the final response into Portuguese.
     """
@@ -161,15 +224,24 @@ def format_text_with_gemini(input_text, style, filename) -> Optional[str]:
         
         # 1. Limpa a resposta (remove markdown, documentclass duplicado, etc)
         texto_limpo = limpar_resposta_ia(response.text)
+        # Validação simples (apenas printa aviso no console por enquanto)
+        validar_balanceamento_latex(texto_limpo)
+
+        # 2. Salva o .tex
+        caminho_tex = convert_text_to_latex_file(texto_limpo, filename)
         
-        # 2. Salva temp
-        caminho_temp = convert_text_to_latex_file(texto_limpo, filename)
+        # 3. Compila para gerar o PDF
+        caminho_pdf = convert_tex_file_to_pdf(caminho_tex)
         
-        # 3. Compila
-        caminho_pdf = convert_tex_file_to_pdf(caminho_temp)
-        
-        return caminho_pdf
+        if caminho_pdf and os.path.exists(caminho_pdf):
+            # RETORNA UM DICIONÁRIO
+            return {
+                "success": True,
+                "base_filename": os.path.basename(caminho_pdf).replace('.pdf', '')
+            }
+        else:
+             return {"success": False, "error": "Erro na compilação do PDF"}
 
     except Exception as e:
         print(f"Erro no fluxo Gemini: {e}")
-        return None
+        return {"success": False, "error": str(e)}

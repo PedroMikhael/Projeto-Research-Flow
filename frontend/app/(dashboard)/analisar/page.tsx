@@ -42,7 +42,8 @@ export default function AnalisarPage() {
         },
         body: JSON.stringify({
           input_value: articleUrl,
-          is_url: true, 
+          is_url: true,
+          user_query: userQuery, // ADICIONADO: Envia a consulta
         }),
       })
 
@@ -91,10 +92,11 @@ export default function AnalisarPage() {
     if (!selectedFile) return
 
     setIsAnalyzing(true)
-    setAnalysis(null) 
+    setAnalysis(null)
 
     const formData = new FormData()
     formData.append("file", selectedFile)
+    formData.append("user_query", userQuery) 
 
     try {
       const response = await fetch(`${API_BASE_URL}/summarize/file/`, {
@@ -165,26 +167,28 @@ export default function AnalisarPage() {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="url" className="space-y-4 pt-4"> {/* Adicionado pt-4 */}
+            {/* ABA DE URL (MANTIDA IGUAL, APENAS PARA CONTEXTO) */}
+            <TabsContent value="url" className="space-y-4 pt-4">
               <div className="space-y-2">
                 <Label htmlFor="article-url">URL do Artigo</Label>
                 <Input
                   id="article-url"
                   placeholder="https://arxiv.org/abs/..."
                   value={articleUrl}
-                  onChange={(e) => {setArticleUrl(e.target.value); setAnalysis(null);}} // Limpa análise ao mudar URL
+                  onChange={(e) => {setArticleUrl(e.target.value); setAnalysis(null);}}
                   className="font-mono text-sm"
                 />
               </div>
+              
+              {/* Campo de Consulta na aba URL */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                     Consulta do Usuário
                 </label>
-
                 <textarea
                     value={userQuery}
                     onChange={(e) => setUserQuery(e.target.value)}
-                    placeholder="Descreva o que você quer que o sistema faça (ex.: 'resuma o artigo focando nos métodos')"
+                    placeholder="Descreva o que você quer que o sistema faça..."
                     className="w-full border border-gray-300 rounded-lg p-3 h-32 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -204,7 +208,8 @@ export default function AnalisarPage() {
               </Button>
             </TabsContent>
 
-            <TabsContent value="upload" className="space-y-4 pt-4"> {/* Adicionado pt-4 */}
+            {/* ABA DE UPLOAD (ATUALIZADA) */}
+            <TabsContent value="upload" className="space-y-4 pt-4">
               <div className="space-y-2">
                 <Label htmlFor="pdf-upload">Arquivo PDF</Label>
                  <div className="flex flex-col space-y-2 sm:flex-row sm:items-center sm:gap-4 sm:space-y-0">
@@ -223,6 +228,19 @@ export default function AnalisarPage() {
                     )}
                 </div>
               </div>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Consulta do Usuário
+                </label>
+                <textarea
+                    value={userQuery}
+                    onChange={(e) => setUserQuery(e.target.value)}
+                    placeholder="Descreva o que você quer que o sistema faça (ex.: 'resuma o artigo focando nos métodos')"
+                    className="w-full border border-gray-300 rounded-lg p-3 h-32 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              {/* -------------------------------------------------------- */}
+
               <Button onClick={handlePdfAnalysis} disabled={isAnalyzing || !selectedFile} className="w-full">
                 {isAnalyzing ? (
                   <>

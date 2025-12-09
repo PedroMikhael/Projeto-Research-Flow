@@ -15,46 +15,56 @@ load_dotenv(dotenv_path=env_path)
 
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-GEMINI_FLASH_2_0 = "gemini-2.0-flash"
-GEMINI_FLASH_2_5 = "gemini-2.5-flash"
-GEMINI_PRO_2_0 = "gemini-2.0-pro"
-GEMINI_PRO_2_5 = "gemini-2.5-pro"
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest")
+SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "problem": {"type": "STRING"},
+        "methodology": {"type": "STRING"},
+        "results": {"type": "STRING"},
+        "conclusion": {"type": "STRING"},
+    },
+    "required": ["problem", "methodology", "results", "conclusion"],
+}
 
 def extract_first_json(text: str) -> Optional[str]:
+    """Helper de fallback para extrair JSON de texto sujo"""
     start = text.find('{')
-    if start == -1:
-        return None
+    if start == -1: return None
     depth = 0
     in_str = False
     esc = False
     for i in range(start, len(text)):
         ch = text[i]
-        if esc:
-            esc = False
-            continue
-        if ch == '\\':
-            esc = True
-            continue
-        if ch == '"':
-            in_str = not in_str
-            continue
-        if in_str:
-            continue
-        if ch == '{':
-            depth += 1
+        if esc: esc = False; continue
+        if ch == '\\': esc = True; continue
+        if ch == '"': in_str = not in_str; continue
+        if in_str: continue
+        if ch == '{': depth += 1
         elif ch == '}':
             depth -= 1
-            if depth == 0:
-                return text[start:i+1]
+            if depth == 0: return text[start:i+1]
     return None
 
-def call_model(model, prompt_text: str, max_tokens: int = 4096) -> str:
+def call_model_structured(model, prompt_text: str, schema: dict) -> str:
+    """
+    Função especializada para chamadas com Schema Estruturado.
+    Garante que o retorno obedeça ao formato JSON definido.
+    """
+    config = {
+        "max_output_tokens": 8192, # Aumentei para garantir resumos longos se necessário
+        "temperature": 0.2,
+        "response_mime_type": "application/json",
+        "response_schema": schema
+    }
+
     try:
-        return model.generate_content(prompt_text, generation_config={"max_output_tokens": max_tokens, "temperature": 0.2}).text
-    except TypeError:
-        return model.generate_content(prompt_text).text
+        response = model.generate_content(prompt_text, generation_config=config)
+        return response.text
+    except Exception as e:
+        print(f"Erro na chamada do modelo: {e}")
+        return ""
 
 def extract_pdf_text_from_file(file_input) -> Optional[str]:
     try:
@@ -250,7 +260,7 @@ def chat_with_context(context_text: str, messages: List[Dict[str, str]]) -> dict
     3. Use formatação Markdown para deixar a resposta clara.
     """
     try:
-        model = genai.GenerativeModel("gemini-2.0-flash") # Usando um modelo estável
+        model = genai.GenerativeModel("gemini-2.5-flash") # Usando um modelo estável
         
         # 1. Constrói o histórico da conversa para dar memória à IA
         chat_history_str = ""
@@ -271,39 +281,53 @@ def chat_with_context(context_text: str, messages: List[Dict[str, str]]) -> dict
         return {"error": str(e)}
 
 def summarize_article_with_gemini(article_text: str, natural_language_query: Optional[str] = None) -> dict:
-    prompt = """
-    Você é um assistente que resume artigos acadêmicos. Sua tarefa é produzir
-    um objeto JSON com as seguintes chaves obrigatórias: "problem", "methodology",
-    "results", "conclusion". Cada chave deve conter um resumo detalhado sobre o artigo fornecido.
+    
+    # 1. Instrução de foco
+    instruction_block = ""
+    if natural_language_query and natural_language_query.strip():
+        instruction_block = f"""
+        INSTRUÇÃO PRIORITÁRIA DO USUÁRIO: "{natural_language_query}".
+        
+        Você deve filtrar e adaptar os campos abaixo para focar nesta consulta.
+        Se o artigo não responder à consulta, explicite isso na conclusão.
+        """
+    else:
+        instruction_block = "Gere um resumo técnico e abrangente."
 
-    Regras estritas:
-    - Retorne APENAS um objeto JSON válido.
-    - Mantenha a linguagem em português e seja objetivo.
-    - Faça uma explicação completa e clara para cada seção.
+    # 2. Prompt (Note que não peço mais formato JSON no texto, o Schema cuida disso)
+    prompt = f"""
+    Você é um especialista em síntese científica. Analise o texto fornecido e preencha os campos solicitados.
+    
+    {instruction_block}
+    
+    Preencha os campos em Português do Brasil de forma detalhada.
+    Texto do Artigo:
+    {article_text[:60000]} 
     """
-    full_prompt = f"{prompt}\n\nTexto do Artigo:\n{article_text[:50000]}\n\nSua saída JSON:"
+    
     model = genai.GenerativeModel(MODEL_NAME)
-    raw = call_model(model, full_prompt)
-    cleaned = (raw or '').replace('```json', '').replace('```', '').strip()
+    
+    # CHAMADA COM SCHEMA REFORÇADO
+    raw = call_model_structured(model, prompt, schema=SUMMARY_SCHEMA)
+    
+    if not raw:
+        return {"error": "O modelo retornou uma resposta vazia."}
+
     try:
-        data = json.loads(cleaned)
-    except Exception:
-        candidate = extract_first_json(cleaned)
-        if not candidate:
-            return {"error": "Resposta inválida do modelo de IA.", "raw": (raw or '')[:1000]}
+        # Como usamos response_schema, o output é garantido ser JSON válido.
+        # Não precisamos de regex para limpar ```json
+        data = json.loads(raw)
+    except Exception as e:
+        # Fallback extremamente raro se a API falhar no schema
+        print(f"Erro no parse direto (raro com schema): {e}")
+        cleaned = raw.replace('```json', '').replace('```', '').strip()
         try:
-            data = json.loads(candidate)
-        except Exception:
-            return {"error": "Resposta inválida do modelo de IA.", "raw": (raw or '')[:1000]}
+            data = json.loads(cleaned)
+        except:
+             return {"error": "Falha crítica no processamento do JSON.", "raw": raw[:500]}
 
     def _normalize_field(v):
-        if v is None:
-            return ''
-        if isinstance(v, (dict, list)):
-            try:
-                return json.dumps(v, ensure_ascii=False)
-            except Exception:
-                return str(v)
+        if v is None: return ''
         return str(v).strip()
 
     return {
@@ -313,13 +337,16 @@ def summarize_article_with_gemini(article_text: str, natural_language_query: Opt
         'conclusion': _normalize_field(data.get('conclusion')),
     }
 
-def summarize_article(input_value: str, is_url: bool = False) -> dict:
+def summarize_article(input_value: str, is_url: bool = False, natural_language_query: Optional[str] = None) -> dict:
     if is_url:
         text = fetch_pdf_text_from_url(input_value)
         if not text:
             return {"error": "Falha ao baixar/ler o PDF."}
     else:
         text = input_value or ''
+    
     if not text.strip():
         return {"error": "Texto vazio para resumir."}
-    return summarize_article_with_gemini(text)
+    
+    # Repassa a query para a função do Gemini
+    return summarize_article_with_gemini(text, natural_language_query=natural_language_query)

@@ -6,6 +6,9 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from pathlib import Path
 import os
 from django.http import FileResponse
+import mimetypes
+from django.http import HttpResponse, Http404
+from pathlib import Path
 
 # Importa TODOS os serializers
 from .serializers import (
@@ -108,9 +111,13 @@ def summarize_article_json_view(request):
     
     input_val = serializer.validated_data['input_value']
     is_url_val = serializer.validated_data['is_url']
-    query = serializer.validated_data.get('query')
+    query = serializer.validated_data.get('user_query')
     
-    result = summarize_article(input_val, input_type='url' if is_url_val else 'text', natural_language_query=query)
+    result = summarize_article(
+        input_value=input_val, 
+        is_url=is_url_val, 
+        natural_language_query=query
+    )
     
     return _handle_summarize_response(result)
 
@@ -133,7 +140,7 @@ def summarize_article_file_view(request):
         return Response({"error": "Arquivo não fornecido."}, status=status.HTTP_400_BAD_REQUEST)
     
     file_obj = request.data['file']
-    query = request.data.get('query')
+    query = request.data.get('user_query')
     
     # Extrai texto do arquivo enviado
     text_result = extract_text_from_file_obj(file_obj)
@@ -220,17 +227,11 @@ def chat_document_view(request):
     if "error" in result:
         return Response(result, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response(result)
+
 # --- ROTA DO FORMATADOR ---
 @extend_schema(
     summary="Formata Texto",
-    request={
-        'multipart/form-data': {
-            'type': 'object',
-            'properties': {'file': {'type': 'string', 'format': 'binary'}, 'style': {'type': 'string'}},
-            'required': ['file']
-        }
-    },
-    responses={200: FormatTextOutputSerializer}
+    responses={200: {'type': 'object', 'properties': {'pdf_url': {'type': 'string'}, 'tex_url': {'type': 'string'}}}}
 )
 @api_view(['POST'])
 @parser_classes([MultiPartParser, FormParser])
@@ -238,21 +239,55 @@ def format_text_view(request):
     serializer = FormatTextSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
-    uploaded_file = request.data['file'] # Ou via serializer.validated_data['file']
+        
+    uploaded_file = request.data['file']
     filename = Path(uploaded_file.name).stem
     style = request.data.get('style')
     extracted_text = extract_text_from_file(uploaded_file)
     
-    # Agora esperamos o caminho do arquivo, não True/False
-    pdf_path = format_text_with_gemini(extracted_text, style, filename)
+    # Chama o serviço que agora retorna um dicionário
+    result = format_text_with_gemini(extracted_text, style, filename)
 
-    if pdf_path and os.path.exists(pdf_path):
-        pdf_file = open(pdf_path, 'rb')
-        
-        # Retorna o arquivo para download
-        response = FileResponse(pdf_file, as_attachment=True, filename=f"{filename}_formatado.pdf")
-        return response
+    if result.get("success"):
+        base_name = result["base_filename"]
+        # RETORNA JSON COM AS URLS PARA DOWNLOAD
+        # Importante: Começa com /download/ para não duplicar o /api no frontend
+        return Response({
+            "message": "Sucesso",
+            "pdf_download_url": f"/download/{base_name}/pdf/",
+            "tex_download_url": f"/download/{base_name}/tex/"
+        }, status=200)
     else:
-        return Response({"error": "Falha ao gerar o arquivo PDF."}, status=500)
+        return Response({"error": result.get("error")}, status=500)
+
+# 2. Nova view para Download (GET)
+@api_view(['GET'])
+def download_file_view(request, filename, file_type):
+    """
+    Rota para baixar arquivos 'pdf' ou 'tex'.
+    """
+    base_dir = Path(__file__).resolve().parent.parent
+    folder_path = base_dir / 'arquivos'
+    
+    print(f"DEBUG: Buscando download em: {folder_path}") # Ajuda a ver no terminal
+
+    if file_type == 'pdf':
+        file_path = folder_path / f"{filename}.pdf"
+        mime_type = 'application/pdf'
+    elif file_type == 'tex':
+        file_path = folder_path / f"{filename}.tex"
+        if not file_path.exists():
+             file_path = folder_path / f"{filename}_temp.tex"
+        mime_type = 'text/plain'
+    else:
+        return Response({"error": "Tipo inválido"}, status=400)
+
+    if file_path.exists():
+        with open(file_path, 'rb') as fh:
+            response = HttpResponse(fh.read(), content_type=mime_type)
+            response['Content-Disposition'] = f'attachment; filename={file_path.name}'
+            return response
+    
+    raise Http404("Arquivo não encontrado.")
     
     

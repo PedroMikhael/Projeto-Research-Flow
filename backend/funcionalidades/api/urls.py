@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import get_status, search_articles_view, summarize_article_json_view, summarize_article_file_view, extract_text_json_view,extract_text_file_view, chat_document_view,format_text_view
+from .views import get_status, search_articles_view, summarize_article_json_view, summarize_article_file_view, extract_text_json_view,extract_text_file_view, chat_document_view,format_text_view, download_file_view
 
 urlpatterns = [
     path('status/', get_status, name='get_status'),
@@ -10,4 +10,5 @@ urlpatterns = [
     path('extract/file/', extract_text_file_view, name='extract_text_file'),
     path('chat/', chat_document_view, name='chat_document'),
     path('format/', format_text_view, name='format_text'),
+    path('download/<str:filename>/<str:file_type>/', download_file_view, name='download_file'),
 ]
