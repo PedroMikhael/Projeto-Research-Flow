@@ -132,25 +132,27 @@ def format_text_with_gemini(input_text, style, filename) -> Optional[str]:
     few_shot = decide_fewshot(style)
     
     prompt = f"""
-        Você é um formatador LaTeX especializado. Sua tarefa é converter o texto abaixo para LaTeX.
+        You are a LaTeX formatting specialist. Your task is to convert the text below into LaTeX.
+
+        STRICT RULES (To avoid breaking the compiler):
+        1. The code will be injected into a file that ALREADY HAS \\documentclass and \\begin{{document}}.
+        2. IMAGES ARE FORBIDDEN: Do not use `\\includegraphics` or `figure`. If there is any mention of an image, write only "[Image removed]".
+        3. COMPLEX TABLES ARE FORBIDDEN: Do not use the `tabular` or `table` environment. Convert all tables into lists (`itemize` or `enumerate`) or descriptive text.
+        4. UNICODE MATH IS FORBIDDEN: Do not use symbols like α, β, ∞. You MUST use the commands `$\\alpha$`, `$\\beta$`, `$\\infty$`.
+        5. Do NOT include any preamble (no \\documentclass, no \\usepackage).
+        6. Do NOT include \\begin{{document}} or \\end{{document}}.
+        7. Start directly with \\section{{Title}} or with the content.
+        8. For mathematics, use ONLY LaTeX commands ($\\alpha$, $\\beta$), NOT Unicode symbols.
+        9. Desired style: {few_shot}.
         
-        REGRAS ESTRITAS (Para não quebrar o compilador):
-        1. O código será injetado dentro de um arquivo que JÁ POSSUI \\documentclass e \\begin{{document}}.
-        2. PROIBIDO USAR IMAGENS: Não use `\\includegraphics` ou `figure`. Se houver menção a imagem, escreva apenas "[Imagem removida]".
-        3. PROIBIDO USAR TABELAS COMPLEXAS: Não use o ambiente `tabular` ou `table`. Converta todas as tabelas em listas (`itemize` ou `enumerate`) ou texto descritivo.
-        4. PROIBIDO UNICODE MATEMÁTICO: Não use símbolos como α, β, ∞. Use OBRIGATORIAMENTE os comandos `$\\alpha$`, `$\\beta$`, `$\\infty$`.
-        5. NÃO inclua preâmbulos (\\documentclass, \\usepackage).
-        6. NÃO inclua \\begin{{document}} ou \\end{{document}}.
-        7. Comece direto com \\section{{Título}} ou o conteúdo.
-        8. Para matemática, use APENAS comandos LaTeX ($\\alpha$, $\\beta$), NÃO use símbolos Unicode.
-        9. Estilo desejado: {style}.
-        
-        Texto Original:
-        {input_text[:25000]} 
+        Original Text:
+        {input_text[:25000]}
+
+        The API must translate the final response into Portuguese.
     """
     
     try:
-        model = genai.GenerativeModel("gemini-2.5-pro")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         response = model.generate_content(prompt)
         
         if not response.text: return None
