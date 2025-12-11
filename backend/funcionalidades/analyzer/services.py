@@ -286,22 +286,22 @@ def summarize_article_with_gemini(article_text: str, natural_language_query: Opt
     instruction_block = ""
     if natural_language_query and natural_language_query.strip():
         instruction_block = f"""
-        INSTRUÇÃO PRIORITÁRIA DO USUÁRIO: "{natural_language_query}".
+        USER PRIORITY INSTRUCTION: "{natural_language_query}".
         
-        Você deve filtrar e adaptar os campos abaixo para focar nesta consulta.
-        Se o artigo não responder à consulta, explicite isso na conclusão.
+        You should filter and adapt the fields below to focus on this query.
+        If the article does not answer the query, please state this in the conclusion.
         """
     else:
-        instruction_block = "Gere um resumo técnico e abrangente."
+        instruction_block = "Generate a comprehensive technical summary."
 
-    # 2. Prompt (Note que não peço mais formato JSON no texto, o Schema cuida disso)
+    # 2. Prompt principal
     prompt = f"""
-    Você é um especialista em síntese científica. Analise o texto fornecido e preencha os campos solicitados.
+    You are an expert in scientific synthesis. Analyze the provided text and fill in the requested fields.
     
     {instruction_block}
     
-    Preencha os campos em Português do Brasil de forma detalhada.
-    Texto do Artigo:
+    Please fill in the fields in Brazilian Portuguese in detail.
+    Article Text:
     {article_text[:60000]} 
     """
     
