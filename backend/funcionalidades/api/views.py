@@ -10,11 +10,16 @@ import mimetypes
 from django.http import HttpResponse, Http404
 from pathlib import Path
 
+from rest_framework import generics, permissions
+from rest_framework.views import APIView
+from django.contrib.auth.models import User
+from favorites.models import Favorite
+
 # Importa TODOS os serializers
 from .serializers import (
     SearchQuerySerializer, 
     ApiResponseSerializer,
-    SummarizeInputSerializer, # Mantido para compatibilidade se necessário
+    SummarizeInputSerializer, 
     SummarizeJsonInputSerializer, 
     SummarizeFormInputSerializer,
     SummarizeOutputSerializer,
@@ -22,7 +27,10 @@ from .serializers import (
     ChatInputSerializer,
     ChatOutputSerializer,
     FormatTextSerializer,
-    FormatTextOutputSerializer
+    FormatTextOutputSerializer,
+    UserSerializer,
+    RegisterSerializer,
+    FavoriteSerializer
 )
 
 # Importa a lógica de CADA app separado
@@ -289,5 +297,41 @@ def download_file_view(request, filename, file_type):
             return response
     
     raise Http404("Arquivo não encontrado.")
+
+
+# --- ROTAS DE AUTENTICAÇÃO ---
+
+class RegisterUserView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    serializer_class = RegisterSerializer
+    permission_classes = [permissions.AllowAny]
+
+class LogoutView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        # Para invalidar o token no backend (opcional, já que TokenAuth não expira por padrão)
+        # request.user.auth_token.delete()
+        return Response({"message": "Logout realizado com sucesso."}, status=status.HTTP_200_OK)
+
+# --- ROTAS DE FAVORITOS ---
+
+class FavoriteListCreateView(generics.ListCreateAPIView):
+    serializer_class = FavoriteSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Favorite.objects.filter(user=self.request.user).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+class FavoriteDeleteView(generics.DestroyAPIView):
+    serializer_class = FavoriteSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Favorite.objects.filter(user=self.request.user)
+
     
     

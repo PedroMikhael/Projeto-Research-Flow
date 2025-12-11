@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from django.contrib.auth.models import User
+from favorites.models import Favorite
 
 # --- Serializers da Busca ---
 
@@ -154,3 +156,32 @@ class ChatOutputSerializer(serializers.Serializer):
 class SummarizeInputSerializer(serializers.Serializer):
     input_value = serializers.CharField()
     is_url = serializers.BooleanField(default=False)
+
+# --- Serializers de Autenticação ---
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email']
+
+class RegisterSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['username', 'email', 'password']
+        extra_kwargs = {'password': {'write_only': True}}
+
+    def create(self, validated_data):
+        user = User.objects.create_user(
+            username=validated_data['username'],
+            email=validated_data['email'],
+            password=validated_data['password']
+        )
+        return user
+
+# --- Serializers de Favoritos ---
+
+class FavoriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Favorite
+        fields = ['id', 'user', 'title', 'url', 'authors', 'year', 'abstract', 'citation_count', 'created_at']
+        extra_kwargs = {'user': {'read_only': True}}

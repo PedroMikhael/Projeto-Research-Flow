@@ -6,6 +6,9 @@ import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { BookOpen } from "lucide-react"
+import { loginUser, setToken } from "@/lib/auth"
+import { useToast } from "@/components/ui/use-toast"
+import { Loader2 } from "lucide-react" // For loading state
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,13 +16,28 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 
 export default function LoginPage() {
   const router = useRouter()
-  const [email, setEmail] = useState("")
+  const { toast } = useToast()
+  const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // Simulate login
-    router.push("/dashboard")
+    setIsLoading(true)
+    try {
+      const data = await loginUser(username, password)
+      setToken(data.token)
+      toast({ title: "Login realizado!", description: "Bem-vindo ao Research Flow." })
+      router.push("/explorar")
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Falha no Login",
+        description: "Verifique suas credenciais e tente novamente."
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -35,13 +53,13 @@ export default function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">E-mail</Label>
+              <Label htmlFor="username">Nome de Usuário</Label>
               <Input
-                id="email"
-                type="email"
-                placeholder="seu@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="username"
+                type="text"
+                placeholder="seunome"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 required
               />
             </div>
@@ -56,7 +74,8 @@ export default function LoginPage() {
                 required
               />
             </div>
-            <Button type="submit" className="w-full">
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Entrar
             </Button>
           </form>

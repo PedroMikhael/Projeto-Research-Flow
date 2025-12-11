@@ -2,6 +2,10 @@
 
 import type React from "react"
 
+import { registerUser } from "@/lib/auth"
+import { useToast } from "@/components/ui/use-toast"
+import { Loader2 } from "lucide-react"
+
 import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -13,15 +17,54 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 
 export default function CadastroPage() {
   const router = useRouter()
-  const [name, setName] = useState("")
+  const { toast } = useToast()
+  const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // Simulate registration
-    router.push("/dashboard")
+
+    if (password !== confirmPassword) {
+      toast({
+        variant: "destructive",
+        title: "Senhas divergentes",
+        description: "As senhas digitadas não são iguais."
+      })
+      return
+    }
+
+    // Basic client-side validation for username
+    const usernameRegex = /^[\w.@+-]+$/;
+    if (!usernameRegex.test(username)) {
+      toast({
+        variant: "destructive",
+        title: "Nome de usuário inválido",
+        description: "Use apenas letras, números e @/./+/-/_."
+      })
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      await registerUser(username, email, password)
+      toast({
+        title: "Conta criada com sucesso!",
+        description: "Agora você pode entrar com suas credenciais."
+      })
+      router.push("/login")
+    } catch (error) {
+      console.error(error)
+      toast({
+        variant: "destructive",
+        title: "Erro no cadastro",
+        description: "Não foi possível criar sua conta. Verifique os dados."
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -37,13 +80,13 @@ export default function CadastroPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Nome Completo</Label>
+              <Label htmlFor="username">Nome de Usuário</Label>
               <Input
-                id="name"
+                id="username"
                 type="text"
-                placeholder="João da Silva"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                placeholder="seunome (sem espaços)"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 required
               />
             </div>
@@ -80,7 +123,8 @@ export default function CadastroPage() {
                 required
               />
             </div>
-            <Button type="submit" className="w-full">
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Criar Conta
             </Button>
           </form>

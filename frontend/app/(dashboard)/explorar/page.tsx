@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react"
 import { Search, Loader2, User, Bot, Filter, Star, FilePlus2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { getToken, API_URL } from "@/lib/auth"
 import { Input } from "@/components/ui/input"
 import {
   Dialog,
@@ -16,8 +17,8 @@ import {
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Slider } from "@/components/ui/slider"
-import { Switch } from "@/components/ui/switch" 
-import { useToast } from "@/components/ui/use-toast" 
+import { Switch } from "@/components/ui/switch"
+import { useToast } from "@/components/ui/use-toast"
 
 function UserMessage({ text }) {
   return (
@@ -31,10 +32,29 @@ function UserMessage({ text }) {
 }
 
 
-function ApiMessage({ response, onLoadMore, onSaveArticle, savedUrls }) { 
+interface Article {
+  url: string
+  title: string
+  authors: any
+  year: any
+  citationCount: any
+  abstract?: string
+}
+
+interface ApiMessageProps {
+  response: {
+    message: string
+    articles: Article[]
+  }
+  onLoadMore: () => void
+  onSaveArticle: (article: Article) => void
+  savedUrls: Set<string>
+}
+
+function ApiMessage({ response, onLoadMore, onSaveArticle, savedUrls }: ApiMessageProps) {
   const { message, articles } = response
   const hasMore = articles && articles.length === 25
-  const [expandedMap, setExpandedMap] = useState(() => ({}))
+  const [expandedMap, setExpandedMap] = useState<Record<number, boolean>>(() => ({}))
 
   const toggleExpanded = (idx) => {
     setExpandedMap((prev) => ({ ...prev, [idx]: !prev[idx] }))
@@ -107,7 +127,7 @@ function ApiMessage({ response, onLoadMore, onSaveArticle, savedUrls }) {
                   {/* --- MUDANÇA: BOTÃO DE "SALVAR" MELHORADO --- */}
                   <div className="mt-4">
                     <Button
-                      variant={isSaved ? "default" : "ghost"} 
+                      variant={isSaved ? "default" : "ghost"}
                       size="sm"
                       onClick={() => onSaveArticle(article)}
                       className={isSaved ? "text-white" : ""}
@@ -160,7 +180,7 @@ const CHAT_HISTORY_KEY = "researchFlowChatHistory";
 export default function ExplorarPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [messages, setMessages] = useState([])
+  const [messages, setMessages] = useState<any[]>([])
   const chatEndRef = useRef(null)
 
   const [isFilterOpen, setIsFilterOpen] = useState(false)
@@ -169,11 +189,11 @@ export default function ExplorarPage() {
   const [isOpenAccess, setIsOpenAccess] = useState(true)
 
   const [offset, setOffset] = useState(0)
-  const [lastQuery, setLastQuery] = useState("") 
-  
-  const { toast } = useToast() 
-  
-  const [savedUrls, setSavedUrls] = useState(new Set())
+  const [lastQuery, setLastQuery] = useState("")
+
+  const { toast } = useToast()
+
+  const [savedUrls, setSavedUrls] = useState<Set<string>>(new Set())
 
   const scrollToBottom = () => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -194,21 +214,36 @@ export default function ExplorarPage() {
   }, [messages])
 
   useEffect(() => {
-    
+
     const savedChat = localStorage.getItem(CHAT_HISTORY_KEY)
     if (savedChat) {
       setMessages(JSON.parse(savedChat))
     }
-    
-    
+
+
     updateSavedUrls()
   }, [])
 
 
-  const updateSavedUrls = () => {
-     const savedItems = localStorage.getItem("researchFlowFavorites")
-     const favorites = savedItems ? JSON.parse(savedItems) : []
-     setSavedUrls(new Set(favorites.map(item => item.url)))
+  const updateSavedUrls = async () => {
+    const token = getToken()
+    if (token) {
+      try {
+        const res = await fetch(`${API_URL}/favorites/`, {
+          headers: { "Authorization": `Token ${token}` }
+        })
+        if (res.ok) {
+          const data = await res.json()
+          setSavedUrls(new Set(data.map((item: any) => item.url)))
+          return
+        }
+      } catch (e) {
+        console.error("Erro ao buscar favoritos da API", e)
+      }
+    }
+    const savedItems = localStorage.getItem("researchFlowFavorites")
+    const favorites = savedItems ? JSON.parse(savedItems) : []
+    setSavedUrls(new Set(favorites.map((item: any) => item.url)))
   }
 
   const handleSaveArticle = (articleToSave) => {
@@ -227,17 +262,17 @@ export default function ExplorarPage() {
 
     favorites.push(articleToSave)
     localStorage.setItem("researchFlowFavorites", JSON.stringify(favorites))
-    
+
     window.dispatchEvent(new Event('favoritesChanged'))
-    updateSavedUrls() 
-    
+    updateSavedUrls()
+
     toast({
       title: "Artigo Salvo!",
       description: "Ele já está te esperando em 'Meus Projetos'.",
     })
   }
 
- 
+
   const callApi = async (query, currentOffset) => {
     const requestBody = {
       query: query,
@@ -249,7 +284,7 @@ export default function ExplorarPage() {
     }
 
     try {
-      const response = await fetch("http://localhost:8000/api/search/", { 
+      const response = await fetch("http://localhost:8000/api/search/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -257,8 +292,8 @@ export default function ExplorarPage() {
 
       const data = await response.json()
       if (!response.ok) throw new Error(data.message || "Erro desconhecido")
-      return data 
-      
+      return data
+
     } catch (error) {
       console.error("Falha ao conectar com o backend:", error)
       return {
@@ -269,7 +304,7 @@ export default function ExplorarPage() {
     }
   }
 
- 
+
 
   const handleNewChat = () => {
     setMessages([])
@@ -289,7 +324,7 @@ export default function ExplorarPage() {
     setMessages((prev) => [...prev, { type: "api", response: data }])
     setIsLoading(false)
   }
-  
+
   const handleLoadMore = async () => {
     const newOffset = offset + 25
     setIsLoading(true)
@@ -308,11 +343,11 @@ export default function ExplorarPage() {
   }
 
   const applyFilters = async () => {
-    setIsFilterOpen(false) 
-    if (!lastQuery) return 
-    
+    setIsFilterOpen(false)
+    if (!lastQuery) return
+
     setIsLoading(true)
-    setOffset(0) 
+    setOffset(0)
     const data = await callApi(lastQuery, 0)
 
     setMessages((prev) => {
@@ -328,7 +363,7 @@ export default function ExplorarPage() {
     setIsLoading(false)
   }
 
- 
+
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col">
       {/* 1. A JANELA DE CHAT */}
@@ -344,15 +379,15 @@ export default function ExplorarPage() {
           {messages.map((msg, index) => {
             if (msg.type === "user") return <UserMessage key={index} text={msg.text} />
             if (msg.type === "api") {
-                return (
-                    <ApiMessage 
-                        key={index} 
-                        response={msg.response} 
-                        onLoadMore={handleLoadMore}
-                        onSaveArticle={(article) => handleSaveArticle(article, toast)}
-                        savedUrls={savedUrls}
-                    />
-                )
+              return (
+                <ApiMessage
+                  key={index}
+                  response={msg.response}
+                  onLoadMore={handleLoadMore}
+                  onSaveArticle={(article) => handleSaveArticle(article, toast)}
+                  savedUrls={savedUrls}
+                />
+              )
             }
             return null
           })}
@@ -360,12 +395,12 @@ export default function ExplorarPage() {
           <div ref={chatEndRef} />
         </div>
       </div>
-      
+
       {/* 2. O INPUT DE CHAT (fixo na base) */}
       <div className="flex-shrink-0 bg-transparent px-4 pb-6 pt-4">
         <div className="mx-auto w-full max-w-3xl">
           <div className="relative flex items-center gap-2 rounded-full bg-white p-2 shadow-xl dark:bg-gray-800">
-            
+
             {/* MUDANÇA: Botão de Nova Conversa */}
             <Button
               size="icon"
@@ -430,10 +465,10 @@ export default function ExplorarPage() {
                     />
                   </div>
                   <div className="flex items-center space-x-3">
-                    <Switch 
-                        id="open-access-filter" 
-                        checked={isOpenAccess}
-                        onCheckedChange={setIsOpenAccess}
+                    <Switch
+                      id="open-access-filter"
+                      checked={isOpenAccess}
+                      onCheckedChange={setIsOpenAccess}
                     />
                     <Label htmlFor="open-access-filter" className="text-base font-normal">
                       Apenas artigos "Open Access" (PDF Gratuito)
@@ -467,7 +502,7 @@ export default function ExplorarPage() {
               disabled={isLoading}
               className="h-14 w-14 shrink-0 rounded-full bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
             >
-              {isLoading ? ( <Loader2 className="h-6 w-6 animate-spin text-white" /> ) : ( <Search className="h-6 w-6 text-white" /> )}
+              {isLoading ? (<Loader2 className="h-6 w-6 animate-spin text-white" />) : (<Search className="h-6 w-6 text-white" />)}
             </Button>
           </div>
         </div>
