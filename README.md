@@ -368,12 +368,18 @@ A documentação completa deste endpoint, incluindo testes interativos, está di
    Para rodar o back-end (lembre de abrir o terminal da pasta "funcionalidades" do backend):
    ```bash
    py manage.py runserver
-
-
-Equipe:
-Pedro Mikhael Maia de Souza
-João Victor dos Santos
-Bianca Leão
-Glauco Cipriano
-Rian Vilanova
    ```
+   
+
+
+## Equipe:
+Pedro Mikhael Maia de Souza;
+
+João Victor dos Santos;  
+
+Bianca Leão;
+
+Glauco Cipriano;
+
+Rian Vilanova;
+
